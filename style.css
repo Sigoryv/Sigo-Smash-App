@@ -99,3 +99,16 @@ a { color: var(--accent); }
 /* v43 : chercher un tournoi */
 .find { display: flex; gap: 8px; } .find input { flex: 1; min-width: 0; }
 .find-h { margin: 14px 4px 8px; font-size: .95em; }
+
+/* v44 : 📡 bracket en direct */
+.bk-direct { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
+.bk-live { margin: 8px 0; border-left: 4px solid var(--accent); } .bk-live.live { border-left-color: #e5534b; } .bk-live.out { border-left-color: var(--line); }
+.bk-vs { font-size: 1.05em; margin-top: 4px; }
+.bk-set { position: relative; }
+.bk-dot { position: absolute; right: 4px; top: -8px; font-size: .62em; color: #e5534b; background: var(--bg, #111); padding: 0 4px; border-radius: 6px; animation: bkblink 1.6s infinite; }
+.bk-set.fresh { animation: bkfresh 2.4s ease-out 2; }
+.bk-set.pulse { outline: 2px solid #e8a33d; outline-offset: 2px; }
+@keyframes bkblink { 50% { opacity: .35; } }
+@keyframes bkfresh { 0% { box-shadow: 0 0 0 3px #e8a33d; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.bk-set.live { overflow: visible; }
+.bk-set.live .bk-p:first-of-type .bk-seed { border-top-left-radius: 7px; } .bk-set.live .bk-p:last-child .bk-seed { border-bottom-left-radius: 7px; }
