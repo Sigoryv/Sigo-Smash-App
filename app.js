@@ -61,7 +61,7 @@ function stats(sets) {
   for (const s of sets) {
     if (s.source === "manual") continue;
     const k = s.eid || s.tid || s.tournament;
-    if (!T.has(k)) T.set(k, { key: k, tid: s.tid, name: s.tournament, slug: s.tslug, ts: s.ts, entrants: s.entrants, seed: s.seed, place: s.place, online: s.online, timg: s.timg, tbanner: s.tbanner, sets: [], w: 0, l: 0 });
+    if (!T.has(k)) T.set(k, { key: k, tid: s.tid, src: s.source, url: s.turl || (s.tslug ? "https://www.start.gg/" + s.tslug : ""), name: s.tournament, slug: s.tslug, ts: s.ts, entrants: s.entrants, seed: s.seed, place: s.place, online: s.online, timg: s.timg, tbanner: s.tbanner, sets: [], w: 0, l: 0 });
     const t = T.get(k); t.sets.push(s); if (!s.dq) s.win ? t.w++ : t.l++; if (s.ts && s.ts < t.ts) t.ts = s.ts;
   }
   const tours = [...T.values()].map((t) => ({ ...t, spr: t.seed && t.place ? pIdx(t.seed) - pIdx(t.place) : null })).sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
@@ -173,6 +173,7 @@ async function syncStartgg() {
   }
   D.upcoming = { at: now(), me, tournaments: out.sort((a, b) => (a.start || 0) - (b.start || 0)) };
   D.lastSg = new Date().toISOString(); D.source = "phone"; save();
+  prefetchScouts();
   return added;
 }
 async function entrants(eid) {
@@ -205,6 +206,146 @@ async function scout(pid, refresh) {
   D.scout[pid] = res;
   const ids = Object.keys(D.scout); if (ids.length > 30) delete D.scout[ids.sort((a, b) => D.scout[a].at - D.scout[b].at)[0]];
   save(); return res;
+}
+
+/* ------------------------------------------------------------ 🏟 mode tournoi : la run se met à jour seule, avec des alertes */
+function liveTournaments() {
+  const t = Date.now();
+  return (D.upcoming?.tournaments || []).filter((u) => (u.start || 0) * 1000 <= t && (u.start || 0) * 1000 > t - 3 * 864e5 && u.events.some((ev) => ev.me?.id));
+}
+const nextKey = (r) => (r?.sets || []).filter((x) => x.res === "next" || x.res === "live").map((x) => x.res + ":" + (x.pid || x.name)).join("|");
+async function pollLive() {
+  if (document.hidden || !D.cfg.sgToken) return;
+  const lt = liveTournaments(); if (!lt.length) return;
+  for (const u of lt) for (const ev of u.events) {
+    if (!ev.me?.id) continue;
+    const before = (D.live || {})[ev.eid];
+    let r; try { r = await liveRun(ev); } catch (_) { continue; }
+    if (before && nextKey(before) !== nextKey(r)) {
+      const nx = r.sets.find((x) => x.res === "live") || r.sets.find((x) => x.res === "next");
+      if (nx) { alertMe(u.name, nx.res === "live" ? `Ton set contre ${nx.name} est lancé (${nx.label})` : `Prochain adversaire : ${nx.name} (${nx.label})`); if (nx.pid) scout(nx.pid).catch(() => {}); }
+    }
+    const el = $(`#live-${CSS.escape(ev.eid)}`); if (el) el.innerHTML = liveHTML(r, stats(allSets()));
+  }
+  if (D.tab === "home" && $("#sheet-back").hidden) render();
+}
+function alertMe(title, body) {
+  try { navigator.vibrate?.([200, 100, 200]); } catch (_) {}
+  toast("🏟 " + body);
+  window.__alerts = (window.__alerts || []).concat(body);
+  if ("Notification" in window && Notification.permission === "granted" && navigator.serviceWorker?.controller)
+    navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, { body, icon: "icon-192.png", badge: "icon-192.png", tag: "sigo-run", renotify: true })).catch(() => {});
+}
+setInterval(pollLive, +localStorage.getItem("sigo.dev.poll") || 60000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) pollLive(); });
+
+/* ------------------------------------------------------------ 📥 le scouting préparé d'avance (lisible hors ligne) */
+let prefetching = false;
+async function prefetchScouts() {
+  if (prefetching || !D.cfg.sgToken) return;
+  prefetching = true;
+  const want = new Map();
+  for (const u of D.upcoming?.tournaments || []) for (const ev of u.events) {
+    if ((u.start || 0) * 1000 > Date.now()) (bracketPath(ev) || []).forEach((r) => r.e?.pid && want.set(r.e.pid, r.e.tag || r.e.name));
+    const r = (D.live || {})[ev.eid]; (r?.sets || []).filter((x) => (x.res === "next" || x.res === "live") && x.pid).forEach((x) => want.set(x.pid, x.name));
+  }
+  let n = 0;
+  for (const [pid] of [...want].slice(0, 10)) {
+    if (D.scout[pid] && now() - D.scout[pid].at < 24 * 3600) continue;
+    try { await scout(pid, true); n++; } catch (_) { break; }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  prefetching = false;
+  if (n) { status(`📥 Scouting préparé : ${n} fiche(s), lisible(s) sans réseau.`); setTimeout(() => status(""), 4000); }
+}
+
+/* ------------------------------------------------------------ 🗺 l'assistant de stages */
+const DEF_STARTERS = ["Battlefield", "Final Destination", "Pokémon Stadium 2", "Smashville", "Town and City"];
+const DEF_CPS = ["Small Battlefield", "Kalos Pokémon League", "Hollow Bastion", "Yoshi's Story"];
+const starters = () => D.cfg.starters?.length ? D.cfg.starters : DEF_STARTERS;
+const counterpicks = () => D.cfg.cps?.length ? D.cfg.cps : DEF_CPS;
+function stageStats(char) {
+  const all = new Map(), vs = new Map();
+  const add = (m, k, w) => { const x = m.get(k) || { w: 0, l: 0 }; w ? x.w++ : x.l++; m.set(k, x); };
+  for (const s of allSets()) if (!s.dq) for (const g of games(s)) {
+    if (!g.stage || g.win == null) continue;
+    add(all, g.stage, g.win); if (char && charName(g.opp) === char) add(vs, g.stage, g.win);
+  }
+  return { all, vs };
+}
+function stageScore(name, ss) {   // (lissé : 1 victoire sur 1 ne vaut pas 100 %)
+  const v = ss.vs.get(name), a = ss.all.get(name);
+  if (v && v.w + v.l >= 2) return { s: (v.w + 1) / (v.w + v.l + 2), src: "vs", x: v };
+  if (a && a.w + a.l >= 2) return { s: (a.w + 1) / (a.w + a.l + 2), src: "all", x: a };
+  return { s: null };
+}
+function stageBlock(char) {
+  const chars = [...new Set(Object.values(D.chars))].sort();
+  const ss = stageStats(char), pool = [...new Set([...starters(), ...counterpicks()])];
+  const scored = pool.map((n) => ({ n, ...stageScore(n, ss) })).filter((x) => x.s != null);
+  const asc = scored.slice().sort((a, b) => a.s - b.s), half = Math.ceil(asc.length / 2);
+  const bans = asc.slice(0, Math.min(2, half)).filter((x) => x.s < .5 || asc.length > 1);                     // (les plus faibles…
+  const picks = asc.slice().reverse().filter((x) => !bans.includes(x) && x.s >= .5).slice(0, 2);            //  …et les meilleures, jamais les mêmes)
+  const line = (x) => `<b>${esc(x.n)}</b> <span class="muted small">${x.x.w}-${x.x.l}${x.src === "all" ? " (tous persos)" : ""}</span>`;
+  return `<div class="card stages" data-char="${esc(char)}"><h3>🗺 Stages ${char ? `contre ${esc(char)}` : ""}</h3>
+    <select class="stage-char" aria-label="Personnage adverse"><option value="">(tous les persos)</option>${chars.map((c) => `<option ${c === char ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+    ${scored.length ? `${bans.length ? `<div class="small" style="margin-top:8px">🚫 À bannir : ${bans.map(line).join(" · ")}</div>` : ""}${picks.length ? `<div class="small" style="margin-top:4px">✅ Counterpick : ${picks.map(line).join(" · ")}</div>` : ""}`
+      : '<div class="muted small" style="margin-top:8px">Pas assez de games avec le stage renseigné pour conseiller (2 games par stage au moins). Le strike marche quand même.</div>'}
+    <div class="small muted" style="margin-top:10px">Strike des starters : touche un stage pour le barrer.</div>
+    <div class="chips">${starters().map((n) => `<button class="stage" data-act="strike" data-stage="${esc(n)}">${esc(n)}</button>`).join("")}</div>
+    <div class="small strike-hint"></div></div>`;
+}
+function strikeHint(box) {
+  if (!box) return;
+  const ss = stageStats(box.dataset.char), left = $$(".stage:not(.struck)", box).map((b) => b.dataset.stage);
+  const h = $(".strike-hint", box);
+  if (left.length <= 1) { h.innerHTML = left.length ? `➡ On joue sur <b>${esc(left[0])}</b>.` : ""; return; }
+  const sc = left.map((n) => ({ n, ...stageScore(n, ss) })).filter((x) => x.s != null).sort((a, b) => a.s - b.s);
+  h.innerHTML = sc.length ? `À barrer en priorité : <b>${esc(sc[0].n)}</b> <span class="muted">(${Math.round(sc[0].s * 100)} % estimé)</span> · ta meilleure : <b>${esc(sc[sc.length - 1].n)}</b>` : "";
+}
+document.addEventListener("change", (e) => {
+  if (!e.target.matches(".stage-char")) return;
+  const old = e.target.closest(".stages"); old.outerHTML = stageBlock(e.target.value);
+});
+
+/* ------------------------------------------------------------ 📤 partager la carte de résultat */
+async function cardImage(t, st) {
+  const W = 1080, H = 1080, c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d");
+  const img = (src) => new Promise((res) => { if (!src) return res(null); const i = new Image(); i.crossOrigin = "anonymous"; i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+  const [banner, lg] = await Promise.all([img(t.tbanner), img(t.timg)]);
+  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#12141c"); g.addColorStop(1, "#262b48"); x.fillStyle = g; x.fillRect(0, 0, W, H);
+  const T = (s, X, Y, f, col = "#fff", al = "left") => { x.font = f; x.fillStyle = col; x.textAlign = al; x.fillText(s, X, Y); x.textAlign = "left"; };
+  try {
+    if (banner) { const r = Math.max(W / banner.width, 300 / banner.height); x.globalAlpha = .5; x.drawImage(banner, (W - banner.width * r) / 2, (300 - banner.height * r) / 2, banner.width * r, banner.height * r); x.globalAlpha = 1; }
+    if (lg) { x.save(); x.beginPath(); x.roundRect(70, 220, 150, 150, 24); x.clip(); x.drawImage(lg, 70, 220, 150, 150); x.restore(); }
+    c.toDataURL();                                                   // (une image sans CORS « tache » le canvas : on la retire)
+  } catch (_) { x.fillStyle = g; x.fillRect(0, 0, W, H); }
+  const fade = x.createLinearGradient(0, 200, 0, 330); fade.addColorStop(0, "rgba(18,20,28,0)"); fade.addColorStop(1, "#171a2a"); x.fillStyle = fade; x.fillRect(0, 200, W, 130);
+  x.font = "800 52px system-ui, sans-serif"; let name = t.name; while (x.measureText(name).width > 760 && name.length > 8) name = name.slice(0, -2);
+  T(name + (name !== t.name ? "…" : ""), 250, 300, "800 52px system-ui, sans-serif");
+  T(`${fmtDate(t.ts)} · ${t.entrants || "?"} joueurs`, 252, 350, "400 30px system-ui, sans-serif", "#aab0c8");
+  T(ordinal(t.place), 70, 580, "800 190px system-ui, sans-serif", "#e8a33d");
+  T(`seed ${t.seed || "?"}${t.spr != null ? ` · ${t.spr > 0 ? "+" : ""}${t.spr} palier(s)` : ""} · ${t.w}-${t.l} en sets`, 76, 650, "500 32px system-ui, sans-serif", "#cfd4ea");
+  let y = 740;
+  for (const s of t.sets.slice().sort((a, b) => (a.ts || "").localeCompare(b.ts || "")).slice(0, 6)) {
+    x.fillStyle = s.win ? "#4cc38a" : "#e5646e"; x.beginPath(); x.roundRect(70, y - 30, 48, 40, 8); x.fill();
+    T(s.win ? "V" : "D", 94, y, "800 24px system-ui, sans-serif", "#12141c", "center");
+    T(s.opp.slice(0, 26), 140, y, "600 32px system-ui, sans-serif"); T(`${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}`, 760, y, "400 30px system-ui, sans-serif", "#aab0c8");
+    if (s.win && st.uf(s) > 0) T("UPSET", 1010, y, "700 24px system-ui, sans-serif", "#e8a33d", "right");
+    y += 52;
+  }
+  const p = D.player; T(p ? (p.prefix ? p.prefix + " | " : "") + p.tag : "", 70, H - 50, "700 32px system-ui, sans-serif", "#cfd4ea");
+  T("Smash Ultimate · start.gg", W - 70, H - 50, "400 24px system-ui, sans-serif", "#7c8199", "right");
+  return new Promise((res) => c.toBlob(res, "image/png"));
+}
+async function shareCard(k) {
+  const st = stats(allSets()), t = st.tours.find((x) => x.key === k); if (!t) return;
+  toast("🖼 Préparation de l'image…");
+  const blob = await cardImage(t, st), file = new File([blob], `Smash - ${t.name.replace(/[^\w\- ]+/g, "")}.png`, { type: "image/png" });
+  window.__lastCard = blob.size;
+  if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file], title: t.name, text: `${ordinal(t.place)} à ${t.name}` }); } catch (_) {} return; }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
+  toast("💾 Image enregistrée dans tes téléchargements.");
 }
 
 /* ------------------------------------------------------------ le casier : GitHub privé, chiffré */
@@ -302,6 +443,7 @@ async function syncAll() {
   $("#sync").classList.remove("spin");
   status(msgs.join(" · "), err); if (!err) setTimeout(() => status(""), 4000);
   render();
+  pollLive(); prefetchScouts();
 }
 
 /* ------------------------------------------------------------ les écrans */
@@ -324,7 +466,13 @@ function viewHome() {
   const sets = allSets(), st = stats(sets), t = st.tours[0];
   const up = (D.upcoming?.tournaments || []).filter((x) => (x.start || 0) * 1000 > Date.now() - 864e5).slice(0, 3);
   const goals = C.section("goals").map(([, g]) => g);
-  return `<div class="kpis"><div class="kpi"><b>${st.pct} %</b><span>sets ${st.W}-${st.L}</span></div><div class="kpi"><b>${st.gpct} %</b><span>games ${st.gw}-${st.gl}</span></div><div class="kpi"><b>${st.tours.length}</b><span>tournois</span></div></div>
+  const live = liveTournaments();
+  const ask = live.length && "Notification" in window && Notification.permission === "default";
+  return `${live.map((u) => { const r = u.events.map((ev) => (D.live || {})[ev.eid]).find(Boolean), nx = r && (r.sets.find((x) => x.res === "live") || r.sets.find((x) => x.res === "next"));
+      return `<div class="card tmode" data-up="${esc(u.tid)}"><div class="small tmode-h">🏟 MODE TOURNOI · actualisé chaque minute</div><b>${esc(u.name)}</b>
+        <div class="small">${r ? (r.out ? "Éliminé · " : "") + (nx ? (nx.res === "live" ? `● En cours contre <b>${esc(nx.name)}</b>` : `Prochain : <b>${esc(nx.name)}</b> · ${esc(nx.label)}`) : r.out ? "" : "En attente du prochain set") : "Lecture de ta run…"}</div></div>`; }).join("")}
+    ${ask ? '<button class="btn" data-act="notif" style="width:100%;margin-bottom:10px">🔔 Activer les alertes (prochain adversaire, set lancé)</button>' : ""}
+    <div class="kpis"><div class="kpi"><b>${st.pct} %</b><span>sets ${st.W}-${st.L}</span></div><div class="kpi"><b>${st.gpct} %</b><span>games ${st.gw}-${st.gl}</span></div><div class="kpi"><b>${st.tours.length}</b><span>tournois</span></div></div>
     ${up.length ? `<h2>🗓 À venir</h2>${up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div><div class="muted small">${esc(fmtDay(u.start))} · <b>${countdown(u.start)}</b>${u.events[0]?.me?.seed ? ` · seed ${u.events[0].me.seed}` : ""}</div></div>›</div>`).join("")}` : ""}
     ${t ? `<h2>🏆 Dernier tournoi</h2><div class="card" data-tour="${esc(t.key)}"><div class="banner" ${t.tbanner ? `style="background-image:url('${esc(t.tbanner)}')"` : ""}></div>
       <div class="row" style="border:none;padding:0">${logo(t.timg, t.name)}<div class="grow"><div><b>${esc(t.name)}</b></div><div class="muted small">${fmtDate(t.ts)} · ${t.entrants || "?"} joueurs</div></div>
@@ -351,7 +499,7 @@ function viewTours() {
   return `<div class="seg"><button data-seg="up" class="${tourSeg === "up" ? "on" : ""}">À venir (${up.length})</button><button data-seg="past" class="${tourSeg === "past" ? "on" : ""}">Passés (${st.tours.length})</button></div>
     ${tourSeg === "up" ? (up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div>
         <div class="muted small">${esc(fmtDay(u.start))} · ${countdown(u.start)}${u.city ? " · " + esc(u.city) : ""}</div></div>›</div>`).join("") || '<div class="empty">Aucun tournoi à venir où tu es inscrit.</div>')
-    : `<div class="card">${st.tours.map((t) => `<div class="row" data-tour="${esc(t.key)}">${logo(t.timg, t.name)}<div class="grow"><div><b>${esc(t.name)}</b></div>
+    : `<div class="card">${st.tours.map((t) => `<div class="row" data-tour="${esc(t.key)}">${logo(t.timg, t.name)}<div class="grow"><div><b>${esc(t.name)}</b>${t.src === "shobu" ? ' <span class="chip shobu">Shobu</span>' : ""}</div>
         <div class="muted small">${fmtDate(t.ts)} · ${t.entrants || "?"} j. · ${wl(t.w, t.l)}</div></div><b>${ordinal(t.place)}</b></div>`).join("") || '<div class="empty">Pas encore de tournoi.</div>'}</div>`}`;
 }
 let pq = "";
@@ -380,7 +528,7 @@ function viewCarnet() {
 let CUR = null, BACK = null;                 // (la fiche ouverte, et celle où revenir depuis la fiche d'un joueur)
 function sheet(html) { $("#sheet").innerHTML = html; $("#sheet-back").hidden = false; $("#sheet").scrollTop = 0; }
 function closeSheet() { $("#sheet-back").hidden = true; CUR = BACK = null; render(); }
-const sgLink = (slug) => slug ? `<a class="sglink" href="https://www.start.gg/${esc(slug)}" target="_blank" rel="noopener" aria-label="Ouvrir sur start.gg">start.gg ↗</a>` : "";
+const sgLink = (url) => url ? `<a class="sglink" href="${esc(url)}" target="_blank" rel="noopener">${url.includes("shobuapp") ? "Shobu" : "start.gg"} ↗</a>` : "";
 const closeBtn = () => BACK ? `<button class="btn" data-act="back">‹ Retour</button>` : `<button class="btn" data-act="close">Fermer</button>`;
 function tourHead(name, banner, sub, slug) {
   return `<div class="card">${banner ? `<div class="banner" style="background-image:url('${esc(banner)}')"></div>` : ""}
@@ -392,7 +540,7 @@ function runRow(r, st) {
   const tap = r.pid ? (/^\d+$/.test(r.pid) ? `data-scout="${esc(r.pid)}" data-name="${esc(r.name)}"` : `data-opp="${esc(r.pid)}"`) : "";
   const res = { w: ["w", "V"], l: ["l", "D"], live: ["live", "●"], next: ["", "…"], bye: ["", "–"], wait: ["", "?"] }[r.res] || ["", "·"];
   return `<div class="row run" ${tap}><span class="res ${res[0]}">${res[1]}</span>
-    <div class="grow"><div><b>${esc(r.name || "?")}</b>${r.seed ? ` <span class="muted small">(seed ${r.seed})</span>` : ""}${r.fav === false ? ' <span class="chip warn">favori</span>' : ""}${r.upset ? ' <span class="chip warn">upset</span>' : ""}${r.pid && C.get("opp_notes", r.pid) ? " 📝" : ""}</div>
+    <div class="grow"><div><b>${esc(r.name || "?")}</b>${r.seed ? ` <span class="muted small">(seed ${r.seed})</span>` : ""}${r.fav === false ? ' <span class="chip warn">favori</span>' : ""}${r.upset ? ' <span class="chip warn">upset</span>' : ""}${r.pid && C.get("opp_notes", r.pid) ? " 📝" : ""}${r.pid && D.scout[r.pid] ? ' <span title="Fiche de scouting disponible hors ligne">📥</span>' : ""}</div>
       <div class="muted small">${esc(r.label)}${r.score ? " · " + esc(r.score) : ""}</div></div>
     ${r.pid ? `<span class="small">${o ? wl(o.w, o.l) : '<span class="muted">1er set</span>'}</span><span class="muted">›</span>` : ""}</div>`;
 }
@@ -401,9 +549,9 @@ function sheetTour(k) {
   CUR = () => sheetTour(k);
   const run = t.sets.slice().sort((a, b) => (a.ts || "").localeCompare(b.ts || "")).map((s) => ({ name: s.opp, pid: s.opp_id, seed: s.opp_seed, label: s.round || "",
     res: s.dq ? "wait" : s.win ? "w" : "l", score: s.dq ? "DQ" : `${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}`, upset: s.win && st.uf(s) > 0 }));
-  sheet(`${tourHead(t.name, t.tbanner, `${fmtDate(t.ts)} · ${t.entrants || "?"} joueurs · seed ${t.seed || "?"} → <b>${ordinal(t.place)}</b> · ${wl(t.w, t.l)}`, t.slug)}
+  sheet(`${tourHead(t.name, t.tbanner, `${fmtDate(t.ts)} · ${t.entrants || "?"} joueurs · seed ${t.seed || "?"} → <b>${ordinal(t.place)}</b> · ${wl(t.w, t.l)}`, t.url)}
     <div class="card"><h3>🏁 Ma run</h3>${run.map((r) => runRow(r, st)).join("")}</div>
-    <div class="btns">${closeBtn()}</div>`);
+    <div class="btns">${closeBtn()}<button class="btn accent" data-act="share" data-k="${esc(k)}">📤 Partager</button></div>`);
 }
 function bracketPath(ev) {
   const seeded = ev.list.filter((e) => e.seed), N = seeded.length, s = ev.me?.seed;
@@ -444,7 +592,7 @@ function sheetUp(tid) {
   const u = (D.upcoming?.tournaments || []).find((x) => x.tid === tid); if (!u) return;
   CUR = () => sheetUp(tid);
   const st = stats(allSets()), started = (u.start || 0) * 1000 <= Date.now();
-  sheet(`${tourHead(u.name, u.tbanner, `${esc(fmtDay(u.start))} · <b>${started ? "commencé" : countdown(u.start)}</b>${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}`, u.slug)}
+  sheet(`${tourHead(u.name, u.tbanner, `${esc(fmtDay(u.start))} · <b>${started ? "commencé" : countdown(u.start)}</b>${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}`, u.slug ? "https://www.start.gg/" + u.slug : "")}
     ${u.events.map((ev) => { const path = bracketPath(ev);
       let body;
       if (started && ev.me?.id) body = `<h3>🏁 Ma run (réelle)</h3><div id="live-${esc(ev.eid)}" data-eid="${esc(ev.eid)}">${liveHTML((D.live || {})[ev.eid], st)}</div>`;
@@ -478,6 +626,7 @@ async function sheetScout(pid, name, refresh) {
     ${r.chars.length ? `<div class="card"><h3>Ses persos</h3>${r.chars.map((c) => `<div class="row"><div class="grow">${esc(c.k)}</div><span class="muted small">${c.n} games · ${Math.round(100 * c.w / c.n)} %</span></div>`).join("")}</div>` : ""}
     <div class="card"><h3>Victoires / défaites récentes</h3>${r.wins.slice(0, 5).map((x) => `<div class="small"><span class="w">V</span> ${esc(x.opp)} ${x.score?.join("-")} · <span class="muted">${esc(x.t)}</span></div>`).join("")}
       ${r.losses.slice(0, 5).map((x) => `<div class="small"><span class="l">D</span> ${esc(x.opp)} ${x.score?.join("-")} · <span class="muted">${esc(x.t)}</span></div>`).join("")}</div>
+    ${stageBlock(r.chars[0]?.k || "")}
     ${oppBlock(pid, p.tag, mine)}<div class="btns">${closeBtn()}<button class="btn accent" data-act="save-opp" data-pid="${esc(pid)}">Enregistrer</button></div>`);
 }
 function oppBlock(pid, name, o) {
@@ -508,6 +657,7 @@ function sheetMu(k) {
   const r = stats(allSets()).opC.find((x) => x.k === k);
   sheet(`<h2>📒 ${esc(k)}</h2><div class="muted small">${r ? `games ${r.w}-${r.l}` : "pas de game renseigné"}</div>
     <textarea id="mu-text" style="min-height:220px;margin-top:10px" placeholder="Ses options dangereuses, comment le punir, tes stages…">${esc(C.get("matchups", k) || "")}</textarea>
+    ${stageBlock(k)}
     <div class="btns"><button class="btn" data-act="close">Fermer</button><button class="btn accent" data-act="save-mu" data-k="${esc(k)}">Enregistrer</button></div>`);
 }
 function sheetNewSet() {
@@ -524,6 +674,8 @@ function sheetSettings() {
     <div class="card"><h3>☁ Synchro avec le Hub</h3><label>Dépôt GitHub privé</label><input type="text" id="s-repo" placeholder="ton-pseudo/sigo-smash-data" value="${esc(c.repo)}" autocapitalize="off">
       <label>Jeton GitHub (ce dépôt seulement)</label><input type="password" id="s-gh" autocomplete="off" placeholder="${c.ghToken ? "•••••• (enregistré)" : "github_pat_…"}">
       <label>Mot de passe de synchro (le même que dans le Hub)</label><input type="password" id="s-pw" autocomplete="off" placeholder="${c.pass ? "•••••• (enregistré)" : "8 caractères au moins"}"></div>
+    <div class="card"><h3>🗺 Stages</h3><label>Starters de ton ruleset (séparés par des virgules)</label><input type="text" id="s-starters" value="${esc(starters().join(", "))}">
+      <label>Counterpicks</label><input type="text" id="s-cps" value="${esc(counterpicks().join(", "))}"></div>
     <div class="muted small">Tout reste sur ce téléphone. Les jetons ne quittent l'appli que vers start.gg et GitHub. En cas de perte du téléphone : révoque les deux jetons.</div>
     <div class="btns"><button class="btn danger" data-act="reset">Tout effacer</button><button class="btn accent" data-act="save-settings">Enregistrer</button></div>`);
 }
@@ -541,6 +693,10 @@ document.addEventListener("click", async (e) => {
   const el = e.target.closest("[data-act]"), act = el?.dataset.act;
   if (act) e.preventDefault();
   if (act === "close") return closeSheet();
+  if (act === "notif") { try { await Notification.requestPermission(); } catch (_) {} return render(); }
+  if (act === "share") return shareCard(el.dataset.k);
+  if (act === "strike") { el.classList.toggle("struck"); return strikeHint(el.closest(".stages")); }
+  if (act === "stage-char") return;
   if (act === "back") { const b = BACK; BACK = null; return b ? b() : closeSheet(); }
   if (act === "live-refresh") { const u = (D.upcoming?.tournaments || []).find((t) => t.events.some((ev) => ev.eid === el.closest("[data-eid]")?.dataset.eid)); if (u) loadLive(u); return; }
   if (act === "settings") return sheetSettings();
@@ -574,6 +730,8 @@ document.addEventListener("click", async (e) => {
     if (prof && !/user\/[0-9a-zA-Z]{6,12}/.test(prof)) return toast("Profil : https://www.start.gg/user/…", true);
     if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) return toast("Dépôt : ton-pseudo/sigo-smash-data", true);
     const pw = $("#s-pw").value; if (pw && pw.length < 8) return toast("Mot de passe : 8 caractères au moins.", true);
+    const list = (id) => $(id).value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
+    c.starters = list("#s-starters"); c.cps = list("#s-cps");
     Object.assign(c, { profile: prof, repo, sgToken: $("#s-sg").value.trim() || c.sgToken, ghToken: $("#s-gh").value.trim() || c.ghToken, pass: pw || c.pass });
     save(); closeSheet(); toast("Enregistré : synchronisation…"); return syncAll();
   }
