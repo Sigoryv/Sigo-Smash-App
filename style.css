@@ -60,3 +60,8 @@ label { display: block; font-size: .82em; color: var(--muted); margin: 12px 2px 
 .mark { display: flex; gap: 6px; margin-bottom: 6px; } .mark input:first-child { width: 84px; flex: none; }
 .setup ol { padding-left: 20px; } .setup li { margin-bottom: 6px; }
 a { color: var(--accent); }
+.thead { display: flex; align-items: center; gap: 10px; }
+.sglink { flex: none; text-decoration: none; font-size: .82em; font-weight: 600; color: var(--accent); border: 1px solid currentColor; border-radius: 10px; padding: 6px 10px; min-height: 32px; display: inline-flex; align-items: center; }
+.sglink:active { background: var(--panel2); }
+.res.live { color: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
