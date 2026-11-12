@@ -645,11 +645,42 @@ function goalCard(g, sets) {
 let tourSeg = "up";
 function viewTours() {
   const st = stats(allSets()), up = ups();
-  return `<div class="seg"><button data-seg="up" class="${tourSeg === "up" ? "on" : ""}">À venir (${up.length})</button><button data-seg="past" class="${tourSeg === "past" ? "on" : ""}">Passés (${st.tours.length})</button></div>
-    ${tourSeg === "up" ? (up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div>
+  return `<div class="seg"><button data-seg="up" class="${tourSeg === "up" ? "on" : ""}">À venir (${up.length})</button><button data-seg="past" class="${tourSeg === "past" ? "on" : ""}">Passés (${st.tours.length})</button><button data-seg="find" class="${tourSeg === "find" ? "on" : ""}">🔎 Chercher</button></div>
+    ${tourSeg === "find" ? viewFind() : tourSeg === "up" ? (up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div>
         <div class="muted small">${esc(fmtDay(u.start))} · ${countdown(u.start)}${u.city ? " · " + esc(u.city) : ""}</div></div>›</div>`).join("") || '<div class="empty">Aucun tournoi à venir où tu es inscrit.</div>')
     : `<div class="card">${st.tours.map((t) => `<div class="row" data-tour="${esc(t.key)}">${logo(t.timg, t.name)}<div class="grow"><div><b>${esc(t.name)}</b>${t.src === "shobu" ? ' <span class="chip shobu">Shobu</span>' : ""}</div>
         <div class="muted small">${fmtDate(t.ts)} · ${t.entrants || "?"} j. · ${wl(t.w, t.l)}</div></div><b>${ordinal(t.place)}</b></div>`).join("") || '<div class="empty">Pas encore de tournoi.</div>'}</div>`}`;
+}
+/* 🔎 chercher n'importe quel tournoi start.gg par son nom (une requête) ou son lien, pour voir son bracket ;
+   la dernière recherche et les 12 derniers consultés restent sur le téléphone */
+const T_F = `id name slug startAt city numAttendees isOnline images { url type } events(filter: {videogameId: [${ULT}]}) { id name numEntrants state }`;
+const Q_TSEARCH = `query TS($q: String!) { tournaments(query: {perPage: 12, sortBy: "startAt desc", filter: {name: $q, videogameIds: [${ULT}]}}) { nodes { ${T_F} } } }`;
+const Q_TSLUG = `query TSlug($slug: String!) { tournament(slug: $slug) { ${T_F} } }`;
+const tView = (t) => ({ id: String(t.id), name: t.name || "", slug: t.slug || "", start: t.startAt || 0, city: t.city || "", online: !!t.isOnline, attendees: t.numAttendees || 0,
+  logo: images(t)[0] || "", events: (t.events || []).map((e) => ({ eid: String(e.id), name: e.name || "", entrants: e.numEntrants || 0, state: e.state === "ACTIVE" ? "live" : e.state === "COMPLETED" ? "done" : "next" })) });
+function findCard(t) {
+  return `<div class="card"><div class="row" style="border:0;padding:0 0 6px">${logo(t.logo, t.name)}<div class="grow"><div><b>${esc(t.name)}</b></div>
+      <div class="muted small">${t.start ? fmtDay(t.start) : ""}${t.online ? " · en ligne" : t.city ? " · " + esc(t.city) : ""}${t.attendees ? ` · ${t.attendees} j.` : ""}</div></div></div>
+    <div class="chips">${t.events.map((e) => `<button class="stage" data-act="find-ev" data-tid="${esc(t.id)}" data-eid="${esc(e.eid)}">🏆 ${esc(e.name)} <span class="muted">${e.entrants || ""}</span>${e.state === "live" ? ' <span class="chip warn">● en cours</span>' : ""}</button>`).join("") || '<span class="muted small">Pas d\'épreuve Ultimate.</span>'}</div></div>`;
+}
+function viewFind() {
+  const F = D.find || {};
+  return `<div class="card"><div class="find"><input type="search" id="find-q" placeholder="Nom du tournoi (ou lien start.gg)…" value="${esc(F.q || "")}" enterkeyhint="search"><button class="btn accent" data-act="find-go">Chercher</button></div></div>
+    <div id="find-res">${F.busy ? '<div class="muted small" style="padding:8px">Recherche sur start.gg…</div>' : F.error ? `<div class="card">⚠ ${esc(F.error)}</div>`
+      : F.q ? `<h3 class="find-h">${/tournament\//.test(F.q) ? "Lien start.gg" : `Résultats pour « ${esc(F.q)} »`}</h3>${(F.results || []).map(findCard).join("") || '<div class="empty">Aucun tournoi Ultimate à ce nom.</div>'}` : ""}</div>
+    ${(() => { const shown = new Set((F.q && !F.busy ? F.results || [] : []).map((t) => t.id)), rec = (F.recent || []).filter((t) => !shown.has(t.id));
+      return rec.length ? `<h3 class="find-h">🕘 Derniers consultés</h3>${rec.map(findCard).join("")}` : ""; })()}`;
+}
+async function findGo() {
+  const q = ($("#find-q")?.value || "").trim().replace(/\s+/g, " ").slice(0, 80);
+  if (q.length < 2) return toast("Tape au moins 2 lettres du nom du tournoi.", true);
+  D.find = { ...(D.find || {}), q, busy: true, error: "" }; render();
+  try {
+    const m = q.match(/tournament\/([\w-]+)/);
+    const nodes = m ? [(await gql(Q_TSLUG, { slug: m[1] })).tournament].filter(Boolean) : ((await gql(Q_TSEARCH, { q })).tournaments || {}).nodes || [];
+    D.find = { ...D.find, busy: false, results: nodes.map(tView) };
+  } catch (e) { D.find = { ...D.find, busy: false, error: e.message }; }
+  save(); render();
 }
 let pq = "";
 function viewPlayers() {
@@ -837,7 +868,9 @@ function sheetSettings() {
 }
 
 /* ------------------------------------------------------------ les gestes */
-function bindView() { const q = $("#pq"); if (q) q.oninput = () => { pq = q.value; clearTimeout(q.t); q.t = setTimeout(() => { render(); const n = $("#pq"); n.focus(); n.setSelectionRange(pq.length, pq.length); }, 200); }; }
+function bindView() {
+  const fq = $("#find-q"); if (fq) fq.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); findGo(); } };
+  const q = $("#pq"); if (q) q.oninput = () => { pq = q.value; clearTimeout(q.t); q.t = setTimeout(() => { render(); const n = $("#pq"); n.focus(); n.setSelectionRange(pq.length, pq.length); }, 200); }; }
 document.addEventListener("click", async (e) => {
   const tab = e.target.closest("#tabs [data-tab]"); if (tab) { D.tab = tab.dataset.tab; save(); render(); window.scrollTo(0, 0); return; }
   if (e.target.closest("#gear")) return sheetSettings();
@@ -853,6 +886,12 @@ document.addEventListener("click", async (e) => {
   if (act === "notif") { try { await Notification.requestPermission(); } catch (_) {} return render(); }
   if (act === "share") return shareCard(el.dataset.k);
   if (act === "bracket") return sheetBracket(el.dataset.eid, el.dataset.title);
+  if (act === "find-go") return findGo();
+  if (act === "find-ev") {
+    const F = D.find || {}, t = [...(F.results || []), ...(F.recent || [])].find((x) => x.id === el.dataset.tid), ev = t?.events.find((x) => x.eid === el.dataset.eid);
+    if (t) { F.recent = [t, ...(F.recent || []).filter((x) => x.id !== t.id)].slice(0, 12); D.find = F; save(); render(); }
+    return sheetBracket(el.dataset.eid, `${t?.name || ""}${ev ? " · " + ev.name : ""}`);
+  }
   if (act === "bk-refresh") return sheetBracket(BK.eid, BK.title);
   if (act === "bk-ph") { BK.phase = el.dataset.id; BK.group = null; BK.hl = null; return drawBracket(); }
   if (act === "bk-g") { BK.group = el.dataset.id; return drawBracket(); }
