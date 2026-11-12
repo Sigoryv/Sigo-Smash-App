@@ -263,6 +263,89 @@ async function shobuLive(ev) {
   return res;
 }
 
+/* ------------------------------------------------------------ 🏆 le bracket d'une épreuve (v42 : le même que dans le Hub) */
+const Q_BR = `query Br($id: ID!, $page: Int!, $per: Int!) { event(id: $id) { id name numEntrants state tournament { name }
+  phases { id name phaseOrder }
+  sets(page: $page, perPage: $per, sortType: ROUND) { pageInfo { totalPages } nodes { id round fullRoundText identifier state winnerId displayScore
+    phaseGroup { id displayIdentifier phase { id } }
+    slots { entrant { id name initialSeedNum participants { player { id } } } standing { stats { score { value } } } }
+    games { selections { entrant { id } selectionValue } } } } } }`;
+let BK = null;
+async function loadBracket(eid) {
+  if (String(eid).startsWith("shobu:")) return shobuBracket(eid);
+  for (const per of [16, 8, 4]) {
+    try {
+      const sets = []; let ev = null, page = 1, total = 1;
+      while (page <= Math.min(total, Math.ceil(1800 / per))) {
+        const d = (await gql(Q_BR, { id: eid, page, per })).event; if (!d) throw new Error("Épreuve introuvable sur start.gg.");
+        ev = ev || d; total = d.sets?.pageInfo?.totalPages || 1;
+        for (const n of d.sets?.nodes || []) {
+          const chars = {};
+          for (const g of n.games || []) for (const x of g.selections || []) { const k = String(x.entrant?.id || ""); if (k && x.selectionValue != null) (chars[k] = chars[k] || []).includes(x.selectionValue) || chars[k].push(x.selectionValue); }
+          sets.push({ id: String(n.id), round: n.round || 0, label: n.fullRoundText || "", ident: n.identifier || "", state: { 1: "next", 2: "live", 3: "done" }[n.state] || "next",
+            winner: String(n.winnerId || ""), chars, phase: String(n.phaseGroup?.phase?.id || ""), group: String(n.phaseGroup?.id || ""), gname: n.phaseGroup?.displayIdentifier || "",
+            slots: [0, 1].map((i) => { const x = (n.slots || [])[i], e = x?.entrant; return e ? { id: String(e.id), name: e.name || "?", seed: e.initialSeedNum, pid: String(e.participants?.[0]?.player?.id || ""), score: x.standing?.stats?.score?.value } : null; }) });
+        }
+        page++;
+      }
+      const phases = (ev.phases || []).slice().sort((a, b) => (a.phaseOrder || 0) - (b.phaseOrder || 0)).map((p) => {
+        const gs = new Map(); for (const st of sets.filter((x) => x.phase === String(p.id))) { if (!gs.has(st.group)) gs.set(st.group, { id: st.group, name: st.gname, sets: [] }); gs.get(st.group).sets.push(st); }
+        return { id: String(p.id), name: p.name, groups: [...gs.values()].sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name)) };
+      }).filter((p) => p.groups.length);
+      return { eid, name: ev.name, tournament: ev.tournament?.name || "", state: ev.state === "COMPLETED" ? "done" : ev.state === "ACTIVE" ? "live" : "next", me: String(D.player?.id || ""), phases, at: now() };
+    } catch (e) { if (!/complexity/i.test(e.message) || per === 4) throw e; }
+  }
+}
+async function shobuBracket(eid) {
+  if (!D.cfg.shobuKey) throw new Error("Ajoute ta clé Shobu dans ⚙ pour voir ce bracket.");
+  const r = await fetch(`${SB()}/events/${encodeURIComponent(String(eid).slice(6))}/bracket`, { headers: { Authorization: "Bearer " + D.cfg.shobuKey, Accept: "application/json" }, cache: "no-store" });
+  if (!r.ok) throw new Error("Shobu a répondu " + r.status);
+  const d = await r.json(), me = norm(D.cfg.shobuUser || "");
+  const rd = (name) => { const n = String(name || "").toLowerCase(), m = n.match(/round\s*(\d+)/); let k = m ? +m[1] : n.includes("quarter") ? 90 : n.includes("semi") ? 91 : n.includes("final") ? 92 : 50; if (n.includes("grand")) k = 99 + (n.includes("reset") ? 1 : 0); return n.includes("loser") ? -k : k; };
+  const sets = (d.sets || []).filter((x) => !(x.slots || []).some((y) => y?.isBye)).map((x) => {
+    const slots = [0, 1].map((i) => { const y = (x.slots || [])[i], e = y?.entrant; return e ? { id: "shobu:" + norm(e.player?.username || e.name), name: e.name || e.player?.username || "?", seed: e.seed, pid: "", score: y.score } : null; });
+    const w = (x.slots || []).findIndex((y) => y?.isWinner), st = String(x.status || "").toUpperCase();
+    return { id: String(x.id), round: rd(x.roundName), label: x.roundName || "", ident: "", order: x.number || 0, state: st === "COMPLETED" ? "done" : st.startsWith("IN") || st === "ONGOING" || st === "STARTED" ? "live" : "next", winner: w >= 0 && slots[w] ? slots[w].id : "", chars: {}, slots };
+  });
+  return { eid, name: d.event?.name || "Bracket", tournament: "", state: sets.length && sets.every((x) => x.state === "done") ? "done" : "live", me: me ? "shobu:" + me : "", phases: sets.length ? [{ id: "", name: "Bracket", groups: [{ id: "", name: "", sets }] }] : [], at: now() };
+}
+async function sheetBracket(eid, title) {
+  BK = { eid, title, data: (D.brackets || {})[eid] || null, phase: null, group: null, hl: null };
+  if (CUR) BACK = CUR; CUR = () => drawBracket();
+  drawBracket();
+  try { BK.data = await loadBracket(eid); D.brackets = Object.fromEntries(Object.entries({ ...(D.brackets || {}), [eid]: BK.data }).slice(-5)); save(); }
+  catch (e) { if (!BK.data) return sheet(`<h2>🏆 ${esc(title)}</h2><div class="card">⚠ ${esc(e.message)}</div><div class="btns">${closeBtn()}</div>`); toast(e.message + " (dernière version gardée)", true); }
+  if (BK?.eid === eid) drawBracket();
+}
+const isMeBk = (x, r) => !!r.me && (x.pid === r.me || x.id === r.me);
+function drawBracket() {
+  const r = BK?.data;
+  if (!r) return sheet(`<h2>🏆 ${esc(BK.title)}</h2><div class="card muted">Lecture du bracket…</div><div class="btns">${closeBtn()}</div>`);
+  const meIn = (g) => g.sets.some((s) => s.slots.some((x) => x && isMeBk(x, r)));
+  if (!r.phases.some((p) => p.id === BK.phase)) { const ph = r.phases.slice().reverse().find((p) => p.groups.some(meIn)) || r.phases[r.phases.length - 1]; BK.phase = ph?.id; BK.group = (ph?.groups.find(meIn) || ph?.groups[0])?.id; }
+  const ph = r.phases.find((p) => p.id === BK.phase), g = ph?.groups.find((x) => x.id === BK.group) || ph?.groups[0];
+  const isGF = (s) => s.round > 0 && /grand/i.test(s.label);
+  const col = (lab, l) => `<div class="bk-col"><div class="bk-rd">${esc(lab)}</div><div class="bk-sets">${l.map(bkSet).join("")}</div></div>`;
+  const side = (pos) => { const m = new Map(); for (const s of (g?.sets || [])) if ((pos ? s.round > 0 : s.round < 0) && !isGF(s)) { if (!m.has(s.round)) m.set(s.round, []); m.get(s.round).push(s); }
+    const cols = [...m.keys()].sort((a, b) => Math.abs(a) - Math.abs(b)).map((k) => col(bkLab(m.get(k)[0].label), m.get(k).sort((a, b) => a.ident.length - b.ident.length || a.ident.localeCompare(b.ident) || (a.order || 0) - (b.order || 0))));
+    if (pos) (g?.sets || []).filter(isGF).sort((a, b) => /reset/i.test(a.label) - /reset/i.test(b.label) || a.id.localeCompare(b.id, undefined, { numeric: true })).forEach((s, i) => cols.push(col(i ? "Grande finale (reset)" : "Grande finale", [s])));
+    return cols.join(""); };
+  const bkSet = (s) => {
+    const me = s.slots.some((x) => x && isMeBk(x, r)), on = BK.hl && s.slots.some((x) => x && x.id === BK.hl);
+    const row = (x) => { if (!x) return '<div class="bk-p empty"><span class="bk-seed"></span><span class="bk-name">—</span></div>';
+      const done = s.state === "done", win = done && s.winner === x.id, lose = done && s.winner && !win, sc = x.score == null ? (win ? "✓" : "") : x.score < 0 ? "DQ" : x.score;
+      return `<div class="bk-p ${win ? "win" : ""} ${lose ? "lose" : ""} ${isMeBk(x, r) ? "me" : ""}" data-bkp="${esc(x.id)}"><span class="bk-seed">${x.seed ?? ""}</span><span class="bk-name">${esc(x.name)}</span><span class="bk-ch">${(s.chars[x.id] || []).slice(0, 2).map((c) => ci(c, "xs")).join("")}</span><b class="bk-sc">${sc}</b></div>`; };
+    return `<div class="bk-set ${me ? "me" : ""} ${on ? "on" : ""} ${s.state} ${BK.hl && !on ? "dim" : ""}">${row(s.slots[0])}${row(s.slots[1])}</div>`; };
+  const w = side(true), l = side(false), st = { done: "terminé", live: "en cours", next: "à venir" }[r.state];
+  sheet(`<h2 style="margin-bottom:2px">🏆 ${esc(r.name)}</h2><div class="muted small">${esc(r.tournament || BK.title)} · <b>${st}</b> · lu ${ago(new Date(r.at * 1000).toISOString())} · <a href="#" data-act="bk-refresh">actualiser</a></div>
+    ${r.phases.length > 1 ? `<div class="chips">${r.phases.map((p) => `<button class="stage ${p.id === ph.id ? "on" : ""}" data-act="bk-ph" data-id="${esc(p.id)}">${esc(p.name)}${p.groups.some(meIn) ? " ★" : ""}</button>`).join("")}</div>` : ""}
+    ${ph && ph.groups.length > 1 ? `<div class="chips">${ph.groups.map((x) => `<button class="stage ${x.id === g.id ? "on" : ""}" data-act="bk-g" data-id="${esc(x.id)}">${esc(x.name || "Poule")}${meIn(x) ? " ★" : ""}</button>`).join("")}</div>` : ""}
+    <div class="bk-wrap">${w ? `<div class="bk-sname">Winners</div><div class="bk-cols">${w}</div>` : ""}${l ? `<div class="bk-sname">Losers</div><div class="bk-cols">${l}</div>` : ""}${!w && !l ? '<div class="muted small">Pas encore de sets.</div>' : ""}</div>
+    <div class="muted small">Touche un joueur pour suivre son parcours. Glisse pour te déplacer.</div><div class="btns">${closeBtn()}</div>`);
+  if (r.state === "live") { clearTimeout(BK.t); const e0 = BK.eid; BK.t = setTimeout(() => { if (BK?.eid === e0 && !$("#sheet-back").hidden) sheetBracket(e0, BK.title); }, 60000); }
+}
+const bkLab = (s) => String(s || "").replace(/^(Winners|Losers) /, "").replace("Round", "Tour").replace("Quarter-Final", "Quart").replace("Semi-Final", "Demie").replace("Final", "Finale");
+
 /* ------------------------------------------------------------ 🏟 mode tournoi : la run se met à jour seule, avec des alertes */
 function liveTournaments() {
   const t = Date.now();
@@ -617,6 +700,7 @@ function sheetTour(k) {
     res: s.dq ? "wait" : s.win ? "w" : "l", score: s.dq ? "DQ" : `${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}`, upset: s.win && st.uf(s) > 0 }));
   sheet(`${tourHead(t.name, t.tbanner, `${fmtDate(t.ts)} · ${t.entrants || "?"} joueurs · seed ${t.seed || "?"} → <b>${ordinal(t.place)}</b> · ${wl(t.w, t.l)}`, t.url)}
     <div class="card"><h3>🏁 Ma run</h3>${run.map((r) => runRow(r, st)).join("")}</div>
+    ${t.sets[0]?.eid ? `<button class="btn" data-act="bracket" data-eid="${esc(t.sets[0].eid)}" data-title="${esc(t.name)}" style="width:100%">🏆 Voir le bracket</button>` : ""}
     <div class="btns">${closeBtn()}<button class="btn accent" data-act="share" data-k="${esc(k)}">📤 Partager</button></div>`);
 }
 function bracketPath(ev) {
@@ -669,7 +753,8 @@ function sheetUp(tid) {
           : runRow({ label: r.label, name: r.e?.tag || r.e?.name, pid: r.e?.pid, seed: r.seed, fav: r.fav, res: "next" }, st)).join("")}
         <div class="muted small" style="margin-top:6px">Projection : bracket unique où la meilleure seed gagne toujours (côté winners). Avec des poules, l'ordre réel diffère.</div>`;
       else body = `<div class="muted small">${ev.seeded ? "Tu n'es pas dans la liste seedée." : shobu && !ev.me ? "Inscrit (coché dans le Hub) : ta run prévue apparaîtra quand le bracket Shobu sera publié." : "Seeds pas encore publiées : ta run prévue apparaîtra ici."}</div>`;
-      return `<div class="card"><h3>${esc(ev.name)} · ${ev.entrants} inscrits ${ev.me?.seed ? `· <span class="chip">ta seed ${ev.me.seed}</span>` : ""}</h3>${body}</div>`; }).join("")}
+      return `<div class="card"><h3>${esc(ev.name)} · ${ev.entrants} inscrits ${ev.me?.seed ? `· <span class="chip">ta seed ${ev.me.seed}</span>` : ""}</h3>${body}
+        <button class="btn" data-act="bracket" data-eid="${esc(ev.eid)}" data-title="${esc(u.name + " · " + ev.name)}" style="width:100%;margin-top:8px">🏆 Voir le bracket</button></div>`; }).join("")}
     <div class="btns">${closeBtn()}</div>`);
   if (started) loadLive(u);
 }
@@ -760,12 +845,17 @@ document.addEventListener("click", async (e) => {
   if (e.target.id === "sheet-back") return closeSheet();
   const seg = e.target.closest("[data-seg]"); if (seg) { tourSeg = seg.dataset.seg; return render(); }
   const sc = e.target.closest("[data-scout]"); if (sc && sc.dataset.scout) { if (CUR && sc.closest("#sheet")) BACK = CUR; CUR = null; return sheetScout(sc.dataset.scout, sc.dataset.name); }
+  const bkp = e.target.closest("#sheet [data-bkp]"); if (bkp && BK) { BK.hl = BK.hl === bkp.dataset.bkp ? null : bkp.dataset.bkp; const sc = $(".bk-wrap")?.scrollLeft; drawBracket(); if ($(".bk-wrap")) $(".bk-wrap").scrollLeft = sc || 0; return; }
   const op0 = e.target.closest("#sheet [data-opp]"); if (op0) { if (CUR) BACK = CUR; CUR = null; return sheetOpp(op0.dataset.opp); }
   const el = e.target.closest("[data-act]"), act = el?.dataset.act;
   if (act) e.preventDefault();
   if (act === "close") return closeSheet();
   if (act === "notif") { try { await Notification.requestPermission(); } catch (_) {} return render(); }
   if (act === "share") return shareCard(el.dataset.k);
+  if (act === "bracket") return sheetBracket(el.dataset.eid, el.dataset.title);
+  if (act === "bk-refresh") return sheetBracket(BK.eid, BK.title);
+  if (act === "bk-ph") { BK.phase = el.dataset.id; BK.group = null; BK.hl = null; return drawBracket(); }
+  if (act === "bk-g") { BK.group = el.dataset.id; return drawBracket(); }
   if (act === "strike") { el.classList.toggle("struck"); return strikeHint(el.closest(".stages")); }
   if (act === "stage-char") return;
   if (act === "back") { const b = BACK; BACK = null; return b ? b() : closeSheet(); }
