@@ -171,7 +171,8 @@ async function syncStartgg() {
     const [timg, tbanner] = images(t);
     if (evs.length) out.push({ tid: String(t.id), name: t.name, slug: t.slug, start: t.startAt, city: t.city || "", online: !!t.isOnline, attendees: t.numAttendees || 0, timg, tbanner, events: evs });
   }
-  D.upcoming = { at: now(), me, tournaments: out.sort((a, b) => (a.start || 0) - (b.start || 0)) };
+  const shobu = (D.upcoming?.tournaments || []).filter((t) => t.src === "shobu");      // (les tournois Shobu viennent du Hub : on les garde)
+  D.upcoming = { at: now(), me, tournaments: [...out, ...shobu].sort((a, b) => (a.start || 0) - (b.start || 0)) };
   D.lastSg = new Date().toISOString(); D.source = "phone"; save();
   prefetchScouts();
   return added;
@@ -454,14 +455,23 @@ async function syncCloud() {
   // l'instantané start.gg du Hub : pris s'il est plus récent que le nôtre
   const snap = await ghGet("hub.enc.json");
   let snapUsed = false;
+  let snapShobu = null;
   if (snap.obj) {
-    const s = await decrypt(snap.obj);
+    const s = await decrypt(snap.obj); snapShobu = s;
     if (s.last_sync && (!D.lastSg || new Date(s.last_sync) > new Date(D.lastSg))) {
       D.sets = s.sets || D.sets; D.chars = Object.keys(s.chars || {}).length ? s.chars : D.chars; D.player = s.player || D.player;
       if (s.upcoming && s.upcoming.tournaments && (!D.upcoming || (s.upcoming.at || 0) > (D.upcoming.at || 0))) D.upcoming = s.upcoming;
       if (!c.profile && s.profile) c.profile = "https://www.start.gg/" + s.profile;
       if (!c.shobuUser && s.shobu_user) c.shobuUser = s.shobu_user;
       D.lastSg = new Date(s.last_sync).toISOString(); D.source = "hub"; snapUsed = true;
+    }
+  }
+  if (snap.obj) {                                   // 🥋 les tournois Shobu (trouvés ou cochés dans le Hub) : toujours ceux du Hub
+    const s = snapShobu;
+    if (s?.upcoming?.tournaments) {
+      const sh = s.upcoming.tournaments.filter((t) => t.src === "shobu");
+      const mine = (D.upcoming?.tournaments || []).filter((t) => t.src !== "shobu");
+      D.upcoming = { ...(D.upcoming || { at: s.upcoming.at, me: s.upcoming.me }), tournaments: [...mine, ...sh].sort((a, b) => (a.start || 0) - (b.start || 0)) };
     }
   }
   D.lastCloud = new Date().toISOString(); save();
