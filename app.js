@@ -68,7 +68,7 @@ function stats(sets) {
   const O = new Map();
   for (const s of play) {
     if (!O.has(s.opp_id)) O.set(s.opp_id, { id: s.opp_id, name: s.opp, w: 0, l: 0, gw: 0, gl: 0, last: s.ts, sets: [] });
-    const o = O.get(s.opp_id); o.sets.push(s); s.win ? o.w++ : o.l++;
+    const o = O.get(s.opp_id); o.sets.push(s); s.win ? o.w++ : o.l++; if (s.opp_shobu) o.both = true;
     const [a, b] = s.score || []; if (a >= 0 && b >= 0) { o.gw += a || 0; o.gl += b || 0; }
     if ((s.ts || "") > (o.last || "")) { o.last = s.ts; o.name = s.opp; }
   }
@@ -208,17 +208,58 @@ async function scout(pid, refresh) {
   save(); return res;
 }
 
+/* les tournois à venir ; « en cours » depuis plus d'une semaine = l'orga a oublié de le clore : il passe dans les Passés */
+const ups = () => (D.upcoming?.tournaments || []).filter((u) => (u.start || 0) * 1000 >= Date.now() - 7 * 864e5);
+const liveOk = (ev) => !!ev.me?.id && (String(ev.eid).startsWith("shobu:") ? !!(D.cfg.shobuKey && D.cfg.shobuUser) : !!D.cfg.sgToken);
+
+/* ------------------------------------------------------------ 🥋 Shobu en direct (clé sur le téléphone) */
+const SB = () => localStorage.getItem("sigo.dev.sb") || "https://api.shobuapp.fr/api/public/v1";
+const norm = (x) => String(x || "").replace(/\s+/g, " ").trim().toLowerCase();
+function isMe(e, user) {
+  if (!e || !user) return false;
+  const u = norm(user), p = e.player || {}, n = norm(e.name);
+  return norm(p.username) === u || norm(p.name) === u || n === u || n.split(" | ").pop() === u;
+}
+function sgIdForTag(pid, name) {          // 🔗 même pseudo sur start.gg : sa fiche start.gg (s'il est unique)
+  const tags = [String(pid || "").replace(/^shobu:/, ""), norm(name).split(" | ").pop()].filter(Boolean), hits = new Set();
+  for (const s of D.sets) if (s.source === "startgg" && tags.includes(norm(s.opp).split(" | ").pop())) hits.add(String(s.opp_id));
+  return hits.size === 1 ? [...hits][0] : "";
+}
+async function shobuLive(ev) {
+  let r;
+  try { r = await fetch(`${SB()}/events/${encodeURIComponent(String(ev.eid).slice(6))}/bracket`, { headers: { Authorization: "Bearer " + D.cfg.shobuKey, Accept: "application/json" }, cache: "no-store" }); }
+  catch (_) { throw new Error("Shobu injoignable depuis le téléphone (réseau, ou Shobu refuse le navigateur)."); }
+  if (r.status === 401) throw new Error("Clé Shobu refusée (⚙ Réglages).");
+  if (r.status === 429) throw new Error("Shobu : trop de requêtes, réessaie dans un instant.");
+  if (!r.ok) throw new Error("Shobu a répondu " + r.status);
+  const d = await r.json(), user = D.cfg.shobuUser, rows = [];
+  for (const s of d.sets || []) {
+    const slots = (s.slots || []).filter(Boolean), mine = slots.find((x) => isMe(x.entrant, user)); if (!mine) continue;
+    const opp = slots.find((x) => x !== mine) || {}; if (opp.isBye) continue;
+    const oe = opp.entrant, p = oe?.player || {}, st = String(s.status || "").toUpperCase(), done = st === "COMPLETED";
+    const spid = oe ? "shobu:" + norm(p.username || oe.name) : "";
+    rows.push({ order: (done ? 0 : 1e6) + (s.number || 0), name: oe ? (oe.name || p.username) : "À déterminer", pid: spid ? (sgIdForTag(spid, oe.name) || spid) : "", seed: oe?.seed ?? null,
+      label: s.roundName || "", res: done ? (mine.isWinner ? "w" : "l") : !oe ? "wait" : ["IN_PROGRESS", "ONGOING", "STARTED"].includes(st) ? "live" : "next",
+      score: done ? `${mine.score ?? "?"}-${opp.score ?? "?"}` : st.startsWith("IN") ? "en cours" : !oe ? "adversaire pas encore connu" : "à jouer" });
+  }
+  rows.sort((a, b) => a.order - b.order);
+  const losses = rows.filter((x) => x.res === "l").length, state = String((d.event || {}).status || "").toUpperCase();
+  const res = { at: now(), state: state === "COMPLETED" ? "COMPLETED" : "ACTIVE", sets: rows, out: losses >= 2 || (losses >= 1 && state === "COMPLETED") };
+  D.live = D.live || {}; D.live[ev.eid] = res; save();
+  return res;
+}
+
 /* ------------------------------------------------------------ 🏟 mode tournoi : la run se met à jour seule, avec des alertes */
 function liveTournaments() {
   const t = Date.now();
-  return (D.upcoming?.tournaments || []).filter((u) => (u.start || 0) * 1000 <= t && (u.start || 0) * 1000 > t - 3 * 864e5 && u.events.some((ev) => ev.me?.id));
+  return ups().filter((u) => (u.start || 0) * 1000 <= t && (u.start || 0) * 1000 > t - 3 * 864e5 && u.events.some(liveOk));
 }
 const nextKey = (r) => (r?.sets || []).filter((x) => x.res === "next" || x.res === "live").map((x) => x.res + ":" + (x.pid || x.name)).join("|");
 async function pollLive() {
-  if (document.hidden || !D.cfg.sgToken) return;
+  if (document.hidden || (!D.cfg.sgToken && !D.cfg.shobuKey)) return;
   const lt = liveTournaments(); if (!lt.length) return;
   for (const u of lt) for (const ev of u.events) {
-    if (!ev.me?.id) continue;
+    if (!liveOk(ev)) continue;
     const before = (D.live || {})[ev.eid];
     let r; try { r = await liveRun(ev); } catch (_) { continue; }
     if (before && nextKey(before) !== nextKey(r)) {
@@ -245,8 +286,8 @@ async function prefetchScouts() {
   if (prefetching || !D.cfg.sgToken) return;
   prefetching = true;
   const want = new Map();
-  for (const u of D.upcoming?.tournaments || []) for (const ev of u.events) {
-    if ((u.start || 0) * 1000 > Date.now()) (bracketPath(ev) || []).forEach((r) => r.e?.pid && want.set(r.e.pid, r.e.tag || r.e.name));
+  for (const u of ups()) for (const ev of u.events) {
+    if ((u.start || 0) * 1000 > Date.now()) (bracketPath(ev) || []).forEach((r) => /^\d+$/.test(r.e?.pid || "") && want.set(r.e.pid, r.e.tag || r.e.name));
     const r = (D.live || {})[ev.eid]; (r?.sets || []).filter((x) => (x.res === "next" || x.res === "live") && x.pid).forEach((x) => want.set(x.pid, x.name));
   }
   let n = 0;
@@ -419,6 +460,7 @@ async function syncCloud() {
       D.sets = s.sets || D.sets; D.chars = Object.keys(s.chars || {}).length ? s.chars : D.chars; D.player = s.player || D.player;
       if (s.upcoming && s.upcoming.tournaments && (!D.upcoming || (s.upcoming.at || 0) > (D.upcoming.at || 0))) D.upcoming = s.upcoming;
       if (!c.profile && s.profile) c.profile = "https://www.start.gg/" + s.profile;
+      if (!c.shobuUser && s.shobu_user) c.shobuUser = s.shobu_user;
       D.lastSg = new Date(s.last_sync).toISOString(); D.source = "hub"; snapUsed = true;
     }
   }
@@ -453,7 +495,7 @@ function render() {
   const p = D.player;
   $("#title").textContent = p ? (p.prefix ? p.prefix + " | " : "") + p.tag : "Sigo Smash";
   const v = $("#view");
-  if (!D.cfg.sgToken && !D.cfg.repo) { v.innerHTML = viewWelcome(); return; }
+  if (!D.cfg.sgToken && !D.cfg.repo && !D.cfg.shobuKey) { v.innerHTML = viewWelcome(); return; }
   v.innerHTML = (TABS[D.tab] || viewHome)();
   bindView();
 }
@@ -464,7 +506,7 @@ function viewWelcome() {
 }
 function viewHome() {
   const sets = allSets(), st = stats(sets), t = st.tours[0];
-  const up = (D.upcoming?.tournaments || []).filter((x) => (x.start || 0) * 1000 > Date.now() - 864e5).slice(0, 3);
+  const up = ups().filter((x) => (x.start || 0) * 1000 > Date.now() - 864e5).slice(0, 3);
   const goals = C.section("goals").map(([, g]) => g);
   const live = liveTournaments();
   const ask = live.length && "Notification" in window && Notification.permission === "default";
@@ -495,7 +537,7 @@ function goalCard(g, sets) {
 }
 let tourSeg = "up";
 function viewTours() {
-  const st = stats(allSets()), up = D.upcoming?.tournaments || [];
+  const st = stats(allSets()), up = ups();
   return `<div class="seg"><button data-seg="up" class="${tourSeg === "up" ? "on" : ""}">À venir (${up.length})</button><button data-seg="past" class="${tourSeg === "past" ? "on" : ""}">Passés (${st.tours.length})</button></div>
     ${tourSeg === "up" ? (up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div>
         <div class="muted small">${esc(fmtDay(u.start))} · ${countdown(u.start)}${u.city ? " · " + esc(u.city) : ""}</div></div>›</div>`).join("") || '<div class="empty">Aucun tournoi à venir où tu es inscrit.</div>')
@@ -506,7 +548,7 @@ let pq = "";
 function viewPlayers() {
   const st = stats(allSets()), list = st.opps.filter((o) => !pq || key(o.name).includes(key(pq)));
   return `<input type="search" id="pq" placeholder="Chercher un joueur…" value="${esc(pq)}" style="margin-bottom:10px">
-    <div class="card">${list.slice(0, 150).map((o) => `<div class="row" data-opp="${esc(o.id)}"><div class="grow"><div><b>${esc(o.name)}</b>${C.get("opp_notes", o.id) ? " 📝" : ""}</div>
+    <div class="card">${list.slice(0, 150).map((o) => `<div class="row" data-opp="${esc(o.id)}"><div class="grow"><div><b>${esc(o.name)}</b>${o.both ? ' <span class="chip shobu">🔗 Shobu</span>' : ""}${C.get("opp_notes", o.id) ? " 📝" : ""}</div>
       <div class="muted small">games ${o.gw}-${o.gl} · ${fmtDate(o.last)}</div></div><span>${wl(o.w, o.l)}</span></div>`).join("") || '<div class="empty">Personne.</div>'}</div>`;
 }
 function viewMatchups() {
@@ -567,6 +609,7 @@ function bracketPath(ev) {
 }
 /* la run réelle d'un tournoi commencé : mes sets de l'event, lus en direct */
 async function liveRun(ev) {
+  if (String(ev.eid).startsWith("shobu:")) return shobuLive(ev);
   const d = (await gql(Q_RUN, { id: ev.eid, ent: ev.me.id })).event || {};
   const sets = ((d.sets || {}).nodes || []).map((n) => {
     const slots = (n.slots || []), mine = slots.find((x) => x.entrant && String(x.entrant.id) === String(ev.me.id)), opp = slots.find((x) => x !== mine);
@@ -589,17 +632,19 @@ function liveHTML(r, st) {
     <div class="muted small" style="margin-top:6px">${head} · lu ${ago(new Date(r.at * 1000).toISOString())} · <a href="#" data-act="live-refresh">actualiser</a></div>`;
 }
 function sheetUp(tid) {
-  const u = (D.upcoming?.tournaments || []).find((x) => x.tid === tid); if (!u) return;
+  const u = ups().find((x) => x.tid === tid); if (!u) return;
   CUR = () => sheetUp(tid);
   const st = stats(allSets()), started = (u.start || 0) * 1000 <= Date.now();
-  sheet(`${tourHead(u.name, u.tbanner, `${esc(fmtDay(u.start))} · <b>${started ? "commencé" : countdown(u.start)}</b>${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}`, u.slug ? "https://www.start.gg/" + u.slug : "")}
+  sheet(`${tourHead(u.name, u.tbanner, `${esc(fmtDay(u.start))} · <b>${started ? "commencé" : countdown(u.start)}</b>${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}`, u.url || (u.slug ? "https://www.start.gg/" + u.slug : ""))}
     ${u.events.map((ev) => { const path = bracketPath(ev);
       let body;
-      if (started && ev.me?.id) body = `<h3>🏁 Ma run (réelle)</h3><div id="live-${esc(ev.eid)}" data-eid="${esc(ev.eid)}">${liveHTML((D.live || {})[ev.eid], st)}</div>`;
+      const shobu = String(ev.eid).startsWith("shobu:");
+      if (started && shobu && !liveOk(ev)) body = `<h3>🏁 Ma run</h3><div class="muted small">Tournoi Shobu : ajoute ta clé Shobu dans ⚙ pour suivre ta run en direct ici (sinon, elle est dans le Hub). ${path ? "Ta run prévue :" : ""}</div>${path ? path.map((r) => r.bye ? "" : runRow({ label: r.label, name: r.e?.tag || r.e?.name, pid: r.e?.pid, seed: r.seed, fav: r.fav, res: "next" }, st)).join("") : ""}`;
+      else if (started && ev.me?.id) body = `<h3>🏁 Ma run (réelle)</h3><div id="live-${esc(ev.eid)}" data-eid="${esc(ev.eid)}">${liveHTML((D.live || {})[ev.eid], st)}</div>`;
       else if (path) body = `<h3>🔮 Ma run (prévue)</h3>${path.map((r) => r.bye ? runRow({ label: r.label, res: "bye", name: "bye (personne à cette seed)" }, st)
           : runRow({ label: r.label, name: r.e?.tag || r.e?.name, pid: r.e?.pid, seed: r.seed, fav: r.fav, res: "next" }, st)).join("")}
         <div class="muted small" style="margin-top:6px">Projection : bracket unique où la meilleure seed gagne toujours (côté winners). Avec des poules, l'ordre réel diffère.</div>`;
-      else body = `<div class="muted small">${ev.seeded ? "Tu n'es pas dans la liste seedée." : "Seeds pas encore publiées : ta run prévue apparaîtra ici."}</div>`;
+      else body = `<div class="muted small">${ev.seeded ? "Tu n'es pas dans la liste seedée." : shobu && !ev.me ? "Inscrit (coché dans le Hub) : ta run prévue apparaîtra quand le bracket Shobu sera publié." : "Seeds pas encore publiées : ta run prévue apparaîtra ici."}</div>`;
       return `<div class="card"><h3>${esc(ev.name)} · ${ev.entrants} inscrits ${ev.me?.seed ? `· <span class="chip">ta seed ${ev.me.seed}</span>` : ""}</h3>${body}</div>`; }).join("")}
     <div class="btns">${closeBtn()}</div>`);
   if (started) loadLive(u);
@@ -607,7 +652,7 @@ function sheetUp(tid) {
 async function loadLive(u) {
   const st = stats(allSets());
   for (const ev of u.events) {
-    if (!ev.me?.id) continue;
+    if (!liveOk(ev)) continue;
     try { await liveRun(ev); } catch (e) { const el = $(`#live-${CSS.escape(ev.eid)}`); if (el) el.insertAdjacentHTML("beforeend", `<div class="muted small">⚠ ${esc(e.message)}</div>`); continue; }
     const el = $(`#live-${CSS.escape(ev.eid)}`); if (el) el.innerHTML = liveHTML(D.live[ev.eid], st);
   }
@@ -676,7 +721,9 @@ function sheetSettings() {
       <label>Mot de passe de synchro (le même que dans le Hub)</label><input type="password" id="s-pw" autocomplete="off" placeholder="${c.pass ? "•••••• (enregistré)" : "8 caractères au moins"}"></div>
     <div class="card"><h3>🗺 Stages</h3><label>Starters de ton ruleset (séparés par des virgules)</label><input type="text" id="s-starters" value="${esc(starters().join(", "))}">
       <label>Counterpicks</label><input type="text" id="s-cps" value="${esc(counterpicks().join(", "))}"></div>
-    <div class="muted small">Tout reste sur ce téléphone. Les jetons ne quittent l'appli que vers start.gg et GitHub. En cas de perte du téléphone : révoque les deux jetons.</div>
+    <div class="card"><h3>🥋 Shobu (facultatif : ta run en direct sur les tournois Shobu)</h3><label>Ton pseudo Shobu</label><input type="text" id="s-sbu" autocapitalize="off" value="${esc(c.shobuUser || "")}">
+      <label>Clé API Shobu</label><input type="password" id="s-sbk" autocomplete="off" placeholder="${c.shobuKey ? "•••••• (enregistrée)" : "shobu_pk_…"}"></div>
+    <div class="muted small">Tout reste sur ce téléphone. Les jetons et la clé ne quittent l'appli que vers start.gg, GitHub et Shobu. En cas de perte du téléphone : révoque-les (start.gg, GitHub, Shobu).</div>
     <div class="btns"><button class="btn danger" data-act="reset">Tout effacer</button><button class="btn accent" data-act="save-settings">Enregistrer</button></div>`);
 }
 
@@ -698,7 +745,7 @@ document.addEventListener("click", async (e) => {
   if (act === "strike") { el.classList.toggle("struck"); return strikeHint(el.closest(".stages")); }
   if (act === "stage-char") return;
   if (act === "back") { const b = BACK; BACK = null; return b ? b() : closeSheet(); }
-  if (act === "live-refresh") { const u = (D.upcoming?.tournaments || []).find((t) => t.events.some((ev) => ev.eid === el.closest("[data-eid]")?.dataset.eid)); if (u) loadLive(u); return; }
+  if (act === "live-refresh") { const u = ups().find((t) => t.events.some((ev) => ev.eid === el.closest("[data-eid]")?.dataset.eid)); if (u) loadLive(u); return; }
   if (act === "settings") return sheetSettings();
   if (act === "rescout") return sheetScout(el.dataset.pid, el.dataset.name, true);
   if (act === "save-opp") { C.set("opp_notes", el.dataset.pid, $("#opp-note").value.trim()); toast("📝 Note enregistrée."); if (BACK) { const b = BACK; BACK = null; return b(); } return closeSheet(); }
@@ -732,6 +779,7 @@ document.addEventListener("click", async (e) => {
     const pw = $("#s-pw").value; if (pw && pw.length < 8) return toast("Mot de passe : 8 caractères au moins.", true);
     const list = (id) => $(id).value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
     c.starters = list("#s-starters"); c.cps = list("#s-cps");
+    c.shobuUser = $("#s-sbu").value.trim().replace(/^@/, "").slice(0, 40); if ($("#s-sbk").value.trim()) c.shobuKey = $("#s-sbk").value.trim();
     Object.assign(c, { profile: prof, repo, sgToken: $("#s-sg").value.trim() || c.sgToken, ghToken: $("#s-gh").value.trim() || c.ghToken, pass: pw || c.pass });
     save(); closeSheet(); toast("Enregistré : synchronisation…"); return syncAll();
   }
