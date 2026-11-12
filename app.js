@@ -309,18 +309,80 @@ async function shobuBracket(eid) {
   });
   return { eid, name: d.event?.name || "Bracket", tournament: "", state: sets.length && sets.every((x) => x.state === "done") ? "done" : "live", me: me ? "shobu:" + me : "", phases: sets.length ? [{ id: "", name: "Bracket", groups: [{ id: "", name: "", sets }] }] : [], at: now() };
 }
+/* 📡 en direct (v44) : tant que le bracket est ouvert et le tournoi en cours, il se relit seul (60 s, ou dès que
+   l'appli revient au premier plan) sans perdre la phase, la poule, le joueur suivi ni la position ; les sets
+   qui viennent de finir clignotent, et le joueur suivi (toi, ou celui que tu as touché) a son bandeau :
+   set en cours, prochain adversaire (🔭 scouting), en attente, éliminé. Une alerte quand son set change. */
+const BK_EVERY = () => +localStorage.getItem("sigo.dev.bkpoll") || 60000;
+const BKDRAW = () => drawBracket();
 async function sheetBracket(eid, title) {
-  BK = { eid, title, data: (D.brackets || {})[eid] || null, phase: null, group: null, hl: null };
-  if (CUR) BACK = CUR; CUR = () => drawBracket();
+  BK = { eid, title, data: (D.brackets || {})[eid] || null, phase: null, group: null, hl: null, live: true, fresh: new Set(), next: 0 };
+  if (CUR && CUR !== BKDRAW) BACK = CUR; CUR = BKDRAW;
   drawBracket();
-  try { BK.data = await loadBracket(eid); D.brackets = Object.fromEntries(Object.entries({ ...(D.brackets || {}), [eid]: BK.data }).slice(-5)); save(); }
-  catch (e) { if (!BK.data) return sheet(`<h2>🏆 ${esc(title)}</h2><div class="card">⚠ ${esc(e.message)}</div><div class="btns">${closeBtn()}</div>`); toast(e.message + " (dernière version gardée)", true); }
-  if (BK?.eid === eid) drawBracket();
+  await refreshBracket(false);
+}
+const bkFocus = (r) => BK.hl ? (x) => x.id === BK.hl : (x) => isMeBk(x, r);
+const bkAll = (r) => r.phases.flatMap((p) => p.groups.flatMap((g) => g.sets.map((s) => ({ ...s, pname: p.name, gid: g.id, pid0: p.id }))));
+function bkStatus(r) {          // (où en est le joueur suivi)
+  const f = bkFocus(r), mine = bkAll(r).filter((s) => s.slots.some((x) => x && f(x)));
+  if (!mine.length) return null;
+  const who = mine[0].slots.find((x) => x && f(x)), opp = (s) => s.slots.find((x) => x && !f(x));
+  const live = mine.find((s) => s.state === "live"), next = mine.filter((s) => s.state === "next").sort((a, b) => !!opp(b) - !!opp(a) || Math.abs(a.round) - Math.abs(b.round))[0];
+  const done = mine.filter((s) => s.state === "done"), lost = done.filter((s) => s.winner && s.winner !== who.id);
+  const dbl = bkAll(r).some((s) => s.round < 0);                       // (double élimination : il faut perdre en losers, ou deux fois)
+  const out = !live && !next && (lost.some((s) => s.round < 0) || lost.length >= 2 || (lost.length > 0 && !dbl));
+  return { who, set: live || next || null, kind: live ? "live" : next ? "next" : out ? "out" : done.length ? "wait" : "none", opp: (live || next) ? opp(live || next) : null, w: done.length - lost.length, l: lost.length };
+}
+const bkKey = (st) => st ? `${st.kind}:${st.set?.id || ""}:${st.opp?.id || ""}` : "";
+async function refreshBracket(auto) {
+  if (!BK || BK.busy) return;
+  const eid = BK.eid, old = BK.data, before = old ? bkKey(bkStatus(old)) : null;
+  BK.busy = true; const cd = $("#bk-cd"); if (cd) cd.textContent = "lecture…";
+  try {
+    const r = await loadBracket(eid);
+    if (BK?.eid !== eid) return;
+    if (old) { const o = new Map(bkAll(old).map((s) => [s.id, s.state])); BK.fresh = new Set(bkAll(r).filter((s) => s.state === "done" && o.has(s.id) && o.get(s.id) !== "done").map((s) => s.id)); }
+    BK.data = r; D.brackets = Object.fromEntries(Object.entries({ ...(D.brackets || {}), [eid]: r }).slice(-5)); save();
+    const st = bkStatus(r);
+    if (old && before !== null && bkKey(st) !== before && st) {
+      const nm = BK.hl ? st.who.name : "Toi", o = st.opp?.name;
+      const msg = st.kind === "live" ? `${nm} : set lancé${o ? " contre " + o : ""} (${bkLab(st.set.label)})` : st.kind === "next" ? (o ? `${nm} : prochain adversaire ${o} (${bkLab(st.set.label)})` : `${nm} : en attente du prochain set`)
+        : st.kind === "out" ? `${nm} : éliminé·e (${st.w}–${st.l} en sets)` : `${nm} : set terminé`;
+      alertMe(r.name, msg);
+    }
+    if (BK.fresh.size && auto) toast(`📡 ${BK.fresh.size} nouveau(x) résultat(s)`);
+  } catch (e) {
+    if (BK?.eid !== eid) return;
+    if (!BK.data) { BK.busy = false; return sheet(`<h2>🏆 ${esc(BK.title)}</h2><div class="card">⚠ ${esc(e.message)}</div><div class="btns">${closeBtn()}</div>`); }
+    if (!auto) toast(e.message + " (dernière version gardée)", true);
+  } finally { if (BK?.eid === eid) { BK.busy = false; BK.next = Date.now() + BK_EVERY(); } }
+  if (BK?.eid === eid && CUR === BKDRAW && !$("#sheet-back").hidden) { const w = $(".bk-wrap")?.scrollLeft, t = $("#sheet").scrollTop; drawBracket(); if ($(".bk-wrap") && w != null) $(".bk-wrap").scrollLeft = w; $("#sheet").scrollTop = t; }
+}
+setInterval(() => {
+  if (!BK || CUR !== BKDRAW || $("#sheet-back").hidden || !BK.data || BK.data.state === "done") return;
+  const cd = $("#bk-cd"); if (!BK.live) { if (cd) cd.textContent = "en pause"; return; }
+  const left = Math.max(0, Math.ceil((BK.next - Date.now()) / 1000));
+  if (cd && !BK.busy) cd.textContent = `maj dans ${left} s`;
+  if (!left && !document.hidden) refreshBracket(true);
+}, 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && BK && CUR === BKDRAW && BK.live && BK.data?.state !== "done" && !$("#sheet-back").hidden) refreshBracket(true); });
+function bkBanner(r) {
+  if (r.state === "done" && !BK.hl) return "";
+  const st = bkStatus(r); if (!st) return "";
+  const nm = BK.hl ? esc(st.who.name) : "Toi", s = st.set, o = st.opp;
+  const sc = (x) => x?.score == null ? "" : x.score;
+  const go = s ? ` <button class="btn small" data-act="bk-go" data-id="${esc(s.id)}">🎯 Voir</button>` : "";
+  const scoutB = o && /^\d+$/.test(o.pid || "") ? `<button class="btn small" data-scout="${esc(o.pid)}" data-name="${esc(o.name)}">🔭 Scouter</button>` : "";
+  const body = st.kind === "live" ? `<b>🔴 Set en cours</b> · ${esc(bkLab(s.label))}<div class="bk-vs">${nm} <b>${sc(s.slots.find((x) => x && x !== o))}–${sc(o)}</b> ${esc(o?.name || "?")}</div>`
+    : st.kind === "next" ? `<b>⏭ Prochain set</b> · ${esc(bkLab(s.label))}${s.pname && r.phases.length > 1 ? " · " + esc(s.pname) : ""}<div class="bk-vs">${nm} vs ${o ? `<b>${esc(o.name)}</b>${o.seed ? ` <span class="muted">(seed ${o.seed})</span>` : ""}` : '<span class="muted">adversaire pas encore connu</span>'}</div>`
+    : st.kind === "out" ? `<b>${BK.hl ? "Éliminé·e" : "Run terminée"}</b> · ${st.w}–${st.l} en sets` : st.kind === "wait" ? `<b>⏳ En attente</b> · ${st.w}–${st.l} en sets pour l'instant` : `<b>${nm}</b> : pas encore de set`;
+  return `<div class="card bk-live ${st.kind}">${BK.hl ? `<div class="muted small">⭐ Suivi : ${esc(st.who.name)} · <a href="#" data-act="bk-me">revenir à moi</a></div>` : ""}${body}${go || scoutB ? `<div class="btns" style="margin-top:6px">${go}${scoutB}</div>` : ""}</div>`;
 }
 const isMeBk = (x, r) => !!r.me && (x.pid === r.me || x.id === r.me);
 function drawBracket() {
   const r = BK?.data;
   if (!r) return sheet(`<h2>🏆 ${esc(BK.title)}</h2><div class="card muted">Lecture du bracket…</div><div class="btns">${closeBtn()}</div>`);
+  CUR = BKDRAW;
   const meIn = (g) => g.sets.some((s) => s.slots.some((x) => x && isMeBk(x, r)));
   if (!r.phases.some((p) => p.id === BK.phase)) { const ph = r.phases.slice().reverse().find((p) => p.groups.some(meIn)) || r.phases[r.phases.length - 1]; BK.phase = ph?.id; BK.group = (ph?.groups.find(meIn) || ph?.groups[0])?.id; }
   const ph = r.phases.find((p) => p.id === BK.phase), g = ph?.groups.find((x) => x.id === BK.group) || ph?.groups[0];
@@ -335,14 +397,15 @@ function drawBracket() {
     const row = (x) => { if (!x) return '<div class="bk-p empty"><span class="bk-seed"></span><span class="bk-name">—</span></div>';
       const done = s.state === "done", win = done && s.winner === x.id, lose = done && s.winner && !win, sc = x.score == null ? (win ? "✓" : "") : x.score < 0 ? "DQ" : x.score;
       return `<div class="bk-p ${win ? "win" : ""} ${lose ? "lose" : ""} ${isMeBk(x, r) ? "me" : ""}" data-bkp="${esc(x.id)}"><span class="bk-seed">${x.seed ?? ""}</span><span class="bk-name">${esc(x.name)}</span><span class="bk-ch">${(s.chars[x.id] || []).slice(0, 2).map((c) => ci(c, "xs")).join("")}</span><b class="bk-sc">${sc}</b></div>`; };
-    return `<div class="bk-set ${me ? "me" : ""} ${on ? "on" : ""} ${s.state} ${BK.hl && !on ? "dim" : ""}">${row(s.slots[0])}${row(s.slots[1])}</div>`; };
+    return `<div class="bk-set ${me ? "me" : ""} ${on ? "on" : ""} ${s.state} ${BK.hl && !on ? "dim" : ""} ${BK.fresh?.has(s.id) ? "fresh" : ""}" data-bks="${esc(s.id)}">${s.state === "live" ? '<span class="bk-dot">● en cours</span>' : ""}${row(s.slots[0])}${row(s.slots[1])}</div>`; };
   const w = side(true), l = side(false), st = { done: "terminé", live: "en cours", next: "à venir" }[r.state];
   sheet(`<h2 style="margin-bottom:2px">🏆 ${esc(r.name)}</h2><div class="muted small">${esc(r.tournament || BK.title)} · <b>${st}</b> · lu ${ago(new Date(r.at * 1000).toISOString())} · <a href="#" data-act="bk-refresh">actualiser</a></div>
+    ${r.state !== "done" ? `<div class="bk-direct small"><button class="stage ${BK.live ? "on" : ""}" data-act="bk-live">📡 Direct ${BK.live ? "activé" : "en pause"}</button> <span class="muted" id="bk-cd">${BK.busy ? "lecture…" : BK.live ? "" : "en pause"}</span></div>` : ""}
+    ${bkBanner(r)}
     ${r.phases.length > 1 ? `<div class="chips">${r.phases.map((p) => `<button class="stage ${p.id === ph.id ? "on" : ""}" data-act="bk-ph" data-id="${esc(p.id)}">${esc(p.name)}${p.groups.some(meIn) ? " ★" : ""}</button>`).join("")}</div>` : ""}
     ${ph && ph.groups.length > 1 ? `<div class="chips">${ph.groups.map((x) => `<button class="stage ${x.id === g.id ? "on" : ""}" data-act="bk-g" data-id="${esc(x.id)}">${esc(x.name || "Poule")}${meIn(x) ? " ★" : ""}</button>`).join("")}</div>` : ""}
     <div class="bk-wrap">${w ? `<div class="bk-sname">Winners</div><div class="bk-cols">${w}</div>` : ""}${l ? `<div class="bk-sname">Losers</div><div class="bk-cols">${l}</div>` : ""}${!w && !l ? '<div class="muted small">Pas encore de sets.</div>' : ""}</div>
     <div class="muted small">Touche un joueur pour suivre son parcours. Glisse pour te déplacer.</div><div class="btns">${closeBtn()}</div>`);
-  if (r.state === "live") { clearTimeout(BK.t); const e0 = BK.eid; BK.t = setTimeout(() => { if (BK?.eid === e0 && !$("#sheet-back").hidden) sheetBracket(e0, BK.title); }, 60000); }
 }
 const bkLab = (s) => String(s || "").replace(/^(Winners|Losers) /, "").replace("Round", "Tour").replace("Quarter-Final", "Quart").replace("Semi-Final", "Demie").replace("Final", "Finale");
 
@@ -892,7 +955,15 @@ document.addEventListener("click", async (e) => {
     if (t) { F.recent = [t, ...(F.recent || []).filter((x) => x.id !== t.id)].slice(0, 12); D.find = F; save(); render(); }
     return sheetBracket(el.dataset.eid, `${t?.name || ""}${ev ? " · " + ev.name : ""}`);
   }
-  if (act === "bk-refresh") return sheetBracket(BK.eid, BK.title);
+  if (act === "bk-refresh") return refreshBracket(false);
+  if (act === "bk-live") { BK.live = !BK.live; BK.next = Date.now() + BK_EVERY(); return drawBracket(); }
+  if (act === "bk-me") { BK.hl = null; return drawBracket(); }
+  if (act === "bk-go") {               // (ouvre la phase / poule du set, et le centre)
+    const s = bkAll(BK.data).find((x) => x.id === el.dataset.id); if (!s) return;
+    BK.phase = s.pid0; BK.group = s.gid; drawBracket();
+    const n = $(`#sheet [data-bks="${CSS.escape(s.id)}"]`); if (n) { n.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" }); n.classList.add("pulse"); setTimeout(() => n.classList.remove("pulse"), 1600); }
+    return;
+  }
   if (act === "bk-ph") { BK.phase = el.dataset.id; BK.group = null; BK.hl = null; return drawBracket(); }
   if (act === "bk-g") { BK.group = el.dataset.id; return drawBracket(); }
   if (act === "strike") { el.classList.toggle("struck"); return strikeHint(el.closest(".stages")); }
