@@ -95,3 +95,7 @@ a { color: var(--accent); }
 .bk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bk-ch { display: inline-flex; gap: 1px; } .bk-sc { width: 18px; text-align: right; }
 .bk-p.win { font-weight: 700; } .bk-p.win .bk-sc { color: var(--green); } .bk-p.lose { color: var(--muted); } .bk-p.me .bk-name { color: var(--accent); }
+
+/* v43 : chercher un tournoi */
+.find { display: flex; gap: 8px; } .find input { flex: 1; min-width: 0; }
+.find-h { margin: 14px 4px 8px; font-size: .95em; }
