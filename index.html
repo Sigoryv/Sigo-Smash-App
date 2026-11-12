@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161f">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http://127.0.0.1:*; connect-src 'self' https://api.start.gg https://api.github.com http://127.0.0.1:*; manifest-src 'self'; worker-src 'self'">
+<title>Sigo Smash</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top"><div id="title">Smash</div><button id="sync" aria-label="Synchroniser">⟳</button><button id="gear" aria-label="Réglages">⚙</button></header>
+<div id="status" hidden></div>
+<main id="view"></main>
+<nav id="tabs">
+  <button data-tab="home"><span>🏠</span>Accueil</button>
+  <button data-tab="tours"><span>🏆</span>Tournois</button>
+  <button data-tab="players"><span>🆚</span>Joueurs</button>
+  <button data-tab="mu"><span>📒</span>Matchups</button>
+  <button data-tab="carnet"><span>📓</span>Carnet</button>
+</nav>
+<div id="sheet-back" hidden><div id="sheet" role="dialog"></div></div>
+<div id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
