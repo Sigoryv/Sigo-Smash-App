@@ -96,6 +96,9 @@ const Q_UP = `query Up($slug: String!) { user(slug: $slug) { player { id }
   tournaments(query: {perPage: 25, page: 1, filter: {upcoming: true}}) { nodes { ${TOUR} events { id name numEntrants startAt isOnline videogame { id } } } } } }`;
 const Q_ENT = `query Ent($id: ID!, $page: Int!) { event(id: $id) { id entrants(query: {page: $page, perPage: 100}) { pageInfo { totalPages }
   nodes { id name initialSeedNum participants { player { id gamerTag prefix } } } } } }`;
+const Q_RUN = `query Run($id: ID!, $ent: ID!) { event(id: $id) { id state sets(page: 1, perPage: 30, filters: {entrantIds: [$ent]}) { nodes {
+  id state fullRoundText round winnerId displayScore completedAt startedAt
+  slots { entrant { id name initialSeedNum participants { player { id gamerTag } } } standing { stats { score { value } } } } } } } }`;
 const Q_SCOUT = `query Scout($id: ID!, $page: Int!, $per: Int!) { player(id: $id) { id gamerTag prefix user { slug location { city country } }
   sets(page: $page, perPage: $per) { pageInfo { totalPages } nodes { ${SET_FIELDS} } } } }`;
 async function gql(query, variables) {
@@ -374,15 +377,33 @@ function viewCarnet() {
 }
 
 /* ------------------------------------------------------------ les fiches (en bas de l'écran) */
+let CUR = null, BACK = null;                 // (la fiche ouverte, et celle où revenir depuis la fiche d'un joueur)
 function sheet(html) { $("#sheet").innerHTML = html; $("#sheet-back").hidden = false; $("#sheet").scrollTop = 0; }
-function closeSheet() { $("#sheet-back").hidden = true; render(); }
+function closeSheet() { $("#sheet-back").hidden = true; CUR = BACK = null; render(); }
+const sgLink = (slug) => slug ? `<a class="sglink" href="https://www.start.gg/${esc(slug)}" target="_blank" rel="noopener" aria-label="Ouvrir sur start.gg">start.gg ↗</a>` : "";
+const closeBtn = () => BACK ? `<button class="btn" data-act="back">‹ Retour</button>` : `<button class="btn" data-act="close">Fermer</button>`;
+function tourHead(name, banner, sub, slug) {
+  return `<div class="card">${banner ? `<div class="banner" style="background-image:url('${esc(banner)}')"></div>` : ""}
+    <div class="thead"><h2 style="margin:0;flex:1">${esc(name)}</h2>${sgLink(slug)}</div><div class="muted small">${sub}</div></div>`;
+}
+/* une ligne de « ma run » : un clic ouvre la fiche du joueur */
+function runRow(r, st) {
+  const o = r.pid && st.opps.find((x) => x.id === r.pid);
+  const tap = r.pid ? (/^\d+$/.test(r.pid) ? `data-scout="${esc(r.pid)}" data-name="${esc(r.name)}"` : `data-opp="${esc(r.pid)}"`) : "";
+  const res = { w: ["w", "V"], l: ["l", "D"], live: ["live", "●"], next: ["", "…"], bye: ["", "–"], wait: ["", "?"] }[r.res] || ["", "·"];
+  return `<div class="row run" ${tap}><span class="res ${res[0]}">${res[1]}</span>
+    <div class="grow"><div><b>${esc(r.name || "?")}</b>${r.seed ? ` <span class="muted small">(seed ${r.seed})</span>` : ""}${r.fav === false ? ' <span class="chip warn">favori</span>' : ""}${r.upset ? ' <span class="chip warn">upset</span>' : ""}${r.pid && C.get("opp_notes", r.pid) ? " 📝" : ""}</div>
+      <div class="muted small">${esc(r.label)}${r.score ? " · " + esc(r.score) : ""}</div></div>
+    ${r.pid ? `<span class="small">${o ? wl(o.w, o.l) : '<span class="muted">1er set</span>'}</span><span class="muted">›</span>` : ""}</div>`;
+}
 function sheetTour(k) {
   const st = stats(allSets()), t = st.tours.find((x) => x.key === k); if (!t) return;
-  sheet(`<div class="card"><div class="banner" ${t.tbanner ? `style="background-image:url('${esc(t.tbanner)}')"` : ""}></div><h2 style="margin:0">${esc(t.name)}</h2>
-    <div class="muted small">${fmtDate(t.ts)} · ${t.entrants || "?"} joueurs · seed ${t.seed || "?"} → <b>${ordinal(t.place)}</b></div></div>
-    <div class="card">${t.sets.slice().sort((a, b) => (a.ts || "").localeCompare(b.ts || "")).map((s) => `<div class="row" data-set="${esc(s.id)}"><span class="res ${s.win ? "w" : "l"}">${s.win ? "V" : "D"}</span>
-      <div class="grow"><div><b>${esc(s.opp)}</b> ${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}</div><div class="muted small">${esc(s.round)}</div></div>${st.uf(s) > 0 && s.win ? '<span class="chip warn">upset</span>' : ""}</div>`).join("")}</div>
-    <div class="btns"><button class="btn" data-act="close">Fermer</button></div>`);
+  CUR = () => sheetTour(k);
+  const run = t.sets.slice().sort((a, b) => (a.ts || "").localeCompare(b.ts || "")).map((s) => ({ name: s.opp, pid: s.opp_id, seed: s.opp_seed, label: s.round || "",
+    res: s.dq ? "wait" : s.win ? "w" : "l", score: s.dq ? "DQ" : `${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}`, upset: s.win && st.uf(s) > 0 }));
+  sheet(`${tourHead(t.name, t.tbanner, `${fmtDate(t.ts)} · ${t.entrants || "?"} joueurs · seed ${t.seed || "?"} → <b>${ordinal(t.place)}</b> · ${wl(t.w, t.l)}`, t.slug)}
+    <div class="card"><h3>🏁 Ma run</h3>${run.map((r) => runRow(r, st)).join("")}</div>
+    <div class="btns">${closeBtn()}</div>`);
 }
 function bracketPath(ev) {
   const seeded = ev.list.filter((e) => e.seed), N = seeded.length, s = ev.me?.seed;
@@ -390,33 +411,65 @@ function bracketPath(ev) {
   const by = new Map(seeded.map((e) => [e.seed, e])); let size = 1; while (size < N) size *= 2;
   const out = [];
   for (let m = size; m >= 2; m /= 2) {
-    const o = m + 1 - s, label = m === 2 ? "Finale W" : m === 4 ? "Demie W" : m === 8 ? "Quart W" : `Top ${m}`;
+    const o = m + 1 - s, label = m === 2 ? "Finale winners" : m === 4 ? "Demi-finale winners" : m === 8 ? "Quart de finale winners" : `Winners · top ${m}`;
     out.push(o > N ? { label, bye: true } : { label, seed: o, e: by.get(o), fav: s < o });
     if (o < s) break;
   }
   return out;
 }
+/* la run réelle d'un tournoi commencé : mes sets de l'event, lus en direct */
+async function liveRun(ev) {
+  const d = (await gql(Q_RUN, { id: ev.eid, ent: ev.me.id })).event || {};
+  const sets = ((d.sets || {}).nodes || []).map((n) => {
+    const slots = (n.slots || []), mine = slots.find((x) => x.entrant && String(x.entrant.id) === String(ev.me.id)), opp = slots.find((x) => x !== mine);
+    const oe = opp?.entrant, pl = (((oe?.participants || [])[0]) || {}).player || {};
+    const sc = (x) => ((((x || {}).standing || {}).stats || {}).score || {}).value;
+    const done = n.state === 3 || !!n.winnerId;
+    return { order: n.completedAt || n.startedAt || (done ? 0 : 9e12) + (n.round < 0 ? 1e6 : 0) + Math.abs(n.round || 0), name: oe ? (oe.name || pl.gamerTag) : "À déterminer", pid: String(pl.id || ""),
+      seed: oe?.initialSeedNum ?? null, label: n.fullRoundText || "", res: done ? (String(n.winnerId) === String(ev.me.id) ? "w" : "l") : !oe ? "wait" : n.state === 2 ? "live" : "next",
+      score: done ? `${sc(mine) ?? "?"}-${sc(opp) ?? "?"}` : n.state === 2 ? "en cours" : !oe ? "adversaire pas encore connu" : "à jouer", upset: false };
+  }).sort((a, b) => a.order - b.order);
+  const losses = sets.filter((x) => x.res === "l").length;
+  const r = { at: now(), state: d.state, sets, out: losses >= 2 || (losses >= 1 && d.state === "COMPLETED") };
+  D.live = D.live || {}; D.live[ev.eid] = r; save();
+  return r;
+}
+function liveHTML(r, st) {
+  if (!r) return '<div class="muted small">Lecture de start.gg…</div>';
+  const head = r.out ? "Éliminé" : r.state === "COMPLETED" ? "Tournoi terminé" : "En cours";
+  return `${r.sets.map((x) => runRow(x, st)).join("") || '<div class="muted small">Aucun set pour l\'instant.</div>'}
+    <div class="muted small" style="margin-top:6px">${head} · lu ${ago(new Date(r.at * 1000).toISOString())} · <a href="#" data-act="live-refresh">actualiser</a></div>`;
+}
 function sheetUp(tid) {
   const u = (D.upcoming?.tournaments || []).find((x) => x.tid === tid); if (!u) return;
-  const st = stats(allSets());
-  sheet(`<div class="card">${u.tbanner ? `<div class="banner" style="background-image:url('${esc(u.tbanner)}')"></div>` : ""}<h2 style="margin:0">${esc(u.name)}</h2>
-    <div class="muted small">${esc(fmtDay(u.start))} · <b>${countdown(u.start)}</b>${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}</div></div>
+  CUR = () => sheetUp(tid);
+  const st = stats(allSets()), started = (u.start || 0) * 1000 <= Date.now();
+  sheet(`${tourHead(u.name, u.tbanner, `${esc(fmtDay(u.start))} · <b>${started ? "commencé" : countdown(u.start)}</b>${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}`, u.slug)}
     ${u.events.map((ev) => { const path = bracketPath(ev);
-      return `<div class="card"><h3>${esc(ev.name)} · ${ev.entrants} inscrits ${ev.me?.seed ? `· <span class="chip">ta seed ${ev.me.seed}</span>` : ""}</h3>
-        ${path ? `<table class="path">${path.map((r) => { if (r.bye) return `<tr><td class="muted small">${r.label}</td><td colspan="3" class="muted small">bye</td></tr>`;
-          const o = r.e && st.opps.find((x) => x.id === r.e.pid);
-          return `<tr data-scout="${esc(r.e?.pid || "")}" data-name="${esc(r.e?.tag || r.e?.name || "")}"><td class="muted small">${r.label}</td><td><b>${esc(r.e?.name || "?")}</b> <span class="muted small">(${r.seed})</span>${r.fav ? "" : ' <span class="chip warn">favori</span>'}</td>
-            <td>${o ? wl(o.w, o.l) : '<span class="muted small">jamais</span>'}</td><td>🔭</td></tr>`; }).join("")}</table>
-          <div class="muted small" style="margin-top:6px">Projection : bracket unique, la meilleure seed gagne toujours (côté winners).</div>`
-          : `<div class="muted small">${ev.seeded ? "Tu n'es pas dans la liste seedée." : "Seeds pas encore publiées."}</div>`}</div>`; }).join("")}
-    <div class="btns"><button class="btn" data-act="close">Fermer</button></div>`);
+      let body;
+      if (started && ev.me?.id) body = `<h3>🏁 Ma run (réelle)</h3><div id="live-${esc(ev.eid)}" data-eid="${esc(ev.eid)}">${liveHTML((D.live || {})[ev.eid], st)}</div>`;
+      else if (path) body = `<h3>🔮 Ma run (prévue)</h3>${path.map((r) => r.bye ? runRow({ label: r.label, res: "bye", name: "bye (personne à cette seed)" }, st)
+          : runRow({ label: r.label, name: r.e?.tag || r.e?.name, pid: r.e?.pid, seed: r.seed, fav: r.fav, res: "next" }, st)).join("")}
+        <div class="muted small" style="margin-top:6px">Projection : bracket unique où la meilleure seed gagne toujours (côté winners). Avec des poules, l'ordre réel diffère.</div>`;
+      else body = `<div class="muted small">${ev.seeded ? "Tu n'es pas dans la liste seedée." : "Seeds pas encore publiées : ta run prévue apparaîtra ici."}</div>`;
+      return `<div class="card"><h3>${esc(ev.name)} · ${ev.entrants} inscrits ${ev.me?.seed ? `· <span class="chip">ta seed ${ev.me.seed}</span>` : ""}</h3>${body}</div>`; }).join("")}
+    <div class="btns">${closeBtn()}</div>`);
+  if (started) loadLive(u);
+}
+async function loadLive(u) {
+  const st = stats(allSets());
+  for (const ev of u.events) {
+    if (!ev.me?.id) continue;
+    try { await liveRun(ev); } catch (e) { const el = $(`#live-${CSS.escape(ev.eid)}`); if (el) el.insertAdjacentHTML("beforeend", `<div class="muted small">⚠ ${esc(e.message)}</div>`); continue; }
+    const el = $(`#live-${CSS.escape(ev.eid)}`); if (el) el.innerHTML = liveHTML(D.live[ev.eid], st);
+  }
 }
 async function sheetScout(pid, name, refresh) {
   const st = stats(allSets()), mine = st.opps.find((o) => o.id === pid);
   sheet(`<h2>🔭 ${esc(name || "…")}</h2><div class="muted">Lecture de start.gg…</div>`);
   let r;
   try { r = await scout(pid, refresh); }
-  catch (e) { sheet(`<h2>🔭 ${esc(name)}</h2><div class="card">${esc(e.message)}</div>${oppBlock(pid, name, mine)}<div class="btns"><button class="btn" data-act="close">Fermer</button></div>`); return; }
+  catch (e) { sheet(`<h2>🔭 ${esc(name)}</h2><div class="card">${esc(e.message)}</div>${oppBlock(pid, name, mine)}<div class="btns">${closeBtn()}<button class="btn accent" data-act="save-opp" data-pid="${esc(pid)}">Enregistrer</button></div>`); return; }
   const p = r.player;
   sheet(`<h2>🔭 ${p.prefix ? `<span class="muted">${esc(p.prefix)} | </span>` : ""}${esc(p.tag)}</h2>
     <div class="muted small">${p.where ? esc(p.where) + " · " : ""}${r.w}-${r.l} sur ses ${r.w + r.l} derniers sets · <a href="#" data-act="rescout" data-pid="${esc(pid)}" data-name="${esc(name)}">actualiser</a></div>
@@ -425,7 +478,7 @@ async function sheetScout(pid, name, refresh) {
     ${r.chars.length ? `<div class="card"><h3>Ses persos</h3>${r.chars.map((c) => `<div class="row"><div class="grow">${esc(c.k)}</div><span class="muted small">${c.n} games · ${Math.round(100 * c.w / c.n)} %</span></div>`).join("")}</div>` : ""}
     <div class="card"><h3>Victoires / défaites récentes</h3>${r.wins.slice(0, 5).map((x) => `<div class="small"><span class="w">V</span> ${esc(x.opp)} ${x.score?.join("-")} · <span class="muted">${esc(x.t)}</span></div>`).join("")}
       ${r.losses.slice(0, 5).map((x) => `<div class="small"><span class="l">D</span> ${esc(x.opp)} ${x.score?.join("-")} · <span class="muted">${esc(x.t)}</span></div>`).join("")}</div>
-    ${oppBlock(pid, p.tag, mine)}<div class="btns"><button class="btn" data-act="close">Fermer</button><button class="btn accent" data-act="save-opp" data-pid="${esc(pid)}">Enregistrer</button></div>`);
+    ${oppBlock(pid, p.tag, mine)}<div class="btns">${closeBtn()}<button class="btn accent" data-act="save-opp" data-pid="${esc(pid)}">Enregistrer</button></div>`);
 }
 function oppBlock(pid, name, o) {
   return `${o ? `<div class="card"><h3>Vos sets</h3>${o.sets.map((s) => `<div class="small"><span class="${s.win ? "w" : "l"}">${s.win ? "V" : "D"}</span> ${s.score?.join("-")} · ${esc(s.tournament)} <span class="muted">${fmtDate(s.ts)}</span></div>`).join("")}</div>` : ""}
@@ -434,7 +487,7 @@ function oppBlock(pid, name, o) {
 function sheetOpp(pid) {
   const o = stats(allSets()).opps.find((x) => x.id === pid); if (!o) return;
   sheet(`<h2>🆚 ${esc(o.name)} <span class="small">${wl(o.w, o.l)}</span></h2><div class="muted small">games ${o.gw}-${o.gl}</div>
-    ${oppBlock(pid, o.name, o)}<div class="btns">${/^\d+$/.test(pid) ? `<button class="btn" data-scout="${esc(pid)}" data-name="${esc(o.name)}">🔭 Scouter</button>` : ""}<button class="btn accent" data-act="save-opp" data-pid="${esc(pid)}">Enregistrer</button></div>`);
+    ${oppBlock(pid, o.name, o)}<div class="btns">${BACK ? closeBtn() : ""}${/^\d+$/.test(pid) ? `<button class="btn" data-scout="${esc(pid)}" data-name="${esc(o.name)}">🔭 Scouter</button>` : ""}<button class="btn accent" data-act="save-opp" data-pid="${esc(pid)}">Enregistrer</button></div>`);
 }
 function sheetSet(id) {
   const s = allSets().find((x) => x.id === id); if (!s) return;
@@ -483,13 +536,16 @@ document.addEventListener("click", async (e) => {
   if (e.target.closest("#sync")) return syncAll();
   if (e.target.id === "sheet-back") return closeSheet();
   const seg = e.target.closest("[data-seg]"); if (seg) { tourSeg = seg.dataset.seg; return render(); }
-  const sc = e.target.closest("[data-scout]"); if (sc && sc.dataset.scout) return sheetScout(sc.dataset.scout, sc.dataset.name);
+  const sc = e.target.closest("[data-scout]"); if (sc && sc.dataset.scout) { if (CUR && sc.closest("#sheet")) BACK = CUR; CUR = null; return sheetScout(sc.dataset.scout, sc.dataset.name); }
+  const op0 = e.target.closest("#sheet [data-opp]"); if (op0) { if (CUR) BACK = CUR; CUR = null; return sheetOpp(op0.dataset.opp); }
   const el = e.target.closest("[data-act]"), act = el?.dataset.act;
   if (act) e.preventDefault();
   if (act === "close") return closeSheet();
+  if (act === "back") { const b = BACK; BACK = null; return b ? b() : closeSheet(); }
+  if (act === "live-refresh") { const u = (D.upcoming?.tournaments || []).find((t) => t.events.some((ev) => ev.eid === el.closest("[data-eid]")?.dataset.eid)); if (u) loadLive(u); return; }
   if (act === "settings") return sheetSettings();
   if (act === "rescout") return sheetScout(el.dataset.pid, el.dataset.name, true);
-  if (act === "save-opp") { C.set("opp_notes", el.dataset.pid, $("#opp-note").value.trim()); toast("📝 Note enregistrée."); return closeSheet(); }
+  if (act === "save-opp") { C.set("opp_notes", el.dataset.pid, $("#opp-note").value.trim()); toast("📝 Note enregistrée."); if (BACK) { const b = BACK; BACK = null; return b(); } return closeSheet(); }
   if (act === "save-mu") { C.set("matchups", el.dataset.k, $("#mu-text").value.trim()); toast("📒 Fiche enregistrée."); return closeSheet(); }
   if (act === "mu-new") { const k = prompt("Fiche matchup : quel personnage ?"); if (k && k.trim()) sheetMu(k.trim()); return; }
   if (act === "mark-add") { $("#marks").insertAdjacentHTML("beforeend", markRow()); $("#marks .mark:last-child .mk-t").focus(); return; }
