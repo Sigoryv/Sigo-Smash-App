@@ -65,3 +65,10 @@ a { color: var(--accent); }
 .sglink:active { background: var(--panel2); }
 .res.live { color: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
+.tmode { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.tmode-h { color: var(--accent); font-weight: 700; letter-spacing: .04em; margin-bottom: 2px; }
+.stages select { margin-top: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.stage { border: 1px solid var(--line); background: var(--panel2); border-radius: 18px; padding: 8px 12px; min-height: 40px; font-size: .88em; }
+.stage.struck { text-decoration: line-through; opacity: .4; }
+.chip.shobu { color: #c9a0ff; border-color: currentColor; }
