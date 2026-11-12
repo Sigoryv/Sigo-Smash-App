@@ -14,7 +14,7 @@ const SG = () => localStorage.getItem("sigo.dev.sg") || "https://api.start.gg/gq
 const GH = () => localStorage.getItem("sigo.dev.gh") || "https://api.github.com";
 
 /* ------------------------------------------------------------ l'état (gardé sur le téléphone) */
-const DEF = { cfg: { sgToken: "", profile: "", repo: "", ghToken: "", pass: "" }, player: null, sets: [], chars: {}, upcoming: null,
+const DEF = { cfg: { sgToken: "", profile: "", repo: "", ghToken: "", pass: "" }, player: null, sets: [], chars: {}, upcoming: null, media: { charimg: {}, avatars: {} },
   carnet: { flat: {}, stamps: {} }, lastSg: "", lastCloud: "", source: "", scout: {}, tab: "home" };
 let D;
 try { D = Object.assign(structuredClone(DEF), JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (_) { D = structuredClone(DEF); }
@@ -35,6 +35,19 @@ const initials = (s) => (String(s || "?").replace(/[^\p{L}\p{N} ]/gu, " ").trim(
 const logo = (url, name, cls = "logo") => `<div class="${cls}" ${url ? `style="background-image:url('${esc(url)}')"` : ""}>${url ? "" : esc(initials(name))}</div>`;
 const key = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const charName = (v) => v == null || v === "" ? "" : (D.chars[String(v)] || String(v));
+/* v33 : les photos de profil et les icônes des persos (adresses start.gg reçues du Hub) */
+const ini = (n) => String(n || "?").replace(/[^\p{L}\p{N} ]/gu, " ").trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+const imgOk = (u) => /^https:\/\/images\.start\.gg\//.test(u || "") ? u : "";
+function av(pid, name, cls = "") {
+  const u = imgOk(((D.media || {}).avatars || {})[String(pid)]);
+  return `<span class="av ${cls}"${u ? ` style="background-image:url('${esc(u)}')"` : ""}>${u ? "" : esc(ini(name))}</span>`;
+}
+function ci(v, cls = "") {
+  const name = charName(v); if (!name) return "";
+  const id = D.chars[String(v)] ? String(v) : (Object.entries(D.chars).find(([, n]) => key(n) === key(name)) || [])[0];
+  const u = imgOk(((D.media || {}).charimg || {})[id]);
+  return `<span class="ci ${cls}" title="${esc(name)}"${u ? ` style="background-image:url('${esc(u)}')"` : ""}>${u ? "" : esc(ini(name))}</span>`;
+}
 
 /* ------------------------------------------------------------ le carnet (le même format que le Hub, à plat) */
 const C = {
@@ -460,6 +473,7 @@ async function syncCloud() {
     const s = await decrypt(snap.obj); snapShobu = s;
     if (s.last_sync && (!D.lastSg || new Date(s.last_sync) > new Date(D.lastSg))) {
       D.sets = s.sets || D.sets; D.chars = Object.keys(s.chars || {}).length ? s.chars : D.chars; D.player = s.player || D.player;
+      if (s.charimg || s.avatars) D.media = { charimg: s.charimg || {}, avatars: s.avatars || {} };
       if (s.upcoming && s.upcoming.tournaments && (!D.upcoming || (s.upcoming.at || 0) > (D.upcoming.at || 0))) D.upcoming = s.upcoming;
       if (!c.profile && s.profile) c.profile = "https://www.start.gg/" + s.profile;
       if (!c.shobuUser && s.shobu_user) c.shobuUser = s.shobu_user;
@@ -558,20 +572,20 @@ let pq = "";
 function viewPlayers() {
   const st = stats(allSets()), list = st.opps.filter((o) => !pq || key(o.name).includes(key(pq)));
   return `<input type="search" id="pq" placeholder="Chercher un joueur…" value="${esc(pq)}" style="margin-bottom:10px">
-    <div class="card">${list.slice(0, 150).map((o) => `<div class="row" data-opp="${esc(o.id)}"><div class="grow"><div><b>${esc(o.name)}</b>${o.both ? ' <span class="chip shobu">🔗 Shobu</span>' : ""}${C.get("opp_notes", o.id) ? " 📝" : ""}</div>
+    <div class="card">${list.slice(0, 150).map((o) => `<div class="row" data-opp="${esc(o.id)}">${av(o.id, o.name)}<div class="grow"><div><b>${esc(o.name)}</b>${o.both ? ' <span class="chip shobu">🔗 Shobu</span>' : ""}${C.get("opp_notes", o.id) ? " 📝" : ""}</div>
       <div class="muted small">games ${o.gw}-${o.gl} · ${fmtDate(o.last)}</div></div><span>${wl(o.w, o.l)}</span></div>`).join("") || '<div class="empty">Personne.</div>'}</div>`;
 }
 function viewMatchups() {
   const st = stats(allSets()), M = new Map(st.opC.map((r) => [r.k, r]));
   const ks = [...new Set([...C.section("matchups").map(([k]) => k), ...st.opC.map((r) => r.k)])];
-  return `<div class="card">${ks.map((k) => { const r = M.get(k); return `<div class="row" data-mu="${esc(k)}"><div class="grow"><div><b>${esc(k)}</b>${C.get("matchups", k) ? " 📝" : ""}</div>
+  return `<div class="card">${ks.map((k) => { const r = M.get(k); return `<div class="row" data-mu="${esc(k)}">${ci(k)}<div class="grow"><div><b>${esc(k)}</b>${C.get("matchups", k) ? " 📝" : ""}</div>
       <div class="muted small">${r ? `${st.pctOf(r.w, r.l)} % · games ${r.w}-${r.l}` : "pas de game renseigné"}</div></div>›</div>`; }).join("") || '<div class="empty">Aucun matchup : complète tes games, ou crée une fiche.</div>'}</div>
     <button class="fab" data-act="mu-new" aria-label="Nouvelle fiche">＋</button>`;
 }
 function viewCarnet() {
   const sets = allSets().slice(0, 250);
   return `<div class="card">${sets.map((s) => `<div class="row" data-set="${esc(s.id)}"><span class="res ${s.dq ? "" : s.win ? "w" : "l"}">${s.dq ? "DQ" : s.win ? "V" : "D"}</span>
-      <div class="grow"><div><b>${esc(s.opp)}</b> <span class="muted small">${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}</span></div><div class="muted small">${fmtDate(s.ts)} · ${esc(s.tournament)}</div></div>
+      ${av(s.opp_id, s.opp, "sm")}<div class="grow"><div><b>${esc(s.opp)}</b> <span class="muted small">${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}</span>${[...new Set(games(s).map((g) => charName(g.opp)).filter(Boolean))].slice(0, 3).map((c) => ci(c, "xs")).join("")}</div><div class="muted small">${fmtDate(s.ts)} · ${esc(s.tournament)}</div></div>
       <span class="small">${C.get("vods", s.id) ? "🎬" : ""}${notes(s.id) ? "📝" : ""}${s.source === "manual" ? "✍" : ""}</span></div>`).join("") || '<div class="empty">Aucun set : ⟳ pour synchroniser.</div>'}</div>
     <button class="fab" data-act="set-new" aria-label="Ajouter un set">＋</button>`;
 }
@@ -591,7 +605,7 @@ function runRow(r, st) {
   const o = r.pid && st.opps.find((x) => x.id === r.pid);
   const tap = r.pid ? (/^\d+$/.test(r.pid) ? `data-scout="${esc(r.pid)}" data-name="${esc(r.name)}"` : `data-opp="${esc(r.pid)}"`) : "";
   const res = { w: ["w", "V"], l: ["l", "D"], live: ["live", "●"], next: ["", "…"], bye: ["", "–"], wait: ["", "?"] }[r.res] || ["", "·"];
-  return `<div class="row run" ${tap}><span class="res ${res[0]}">${res[1]}</span>
+  return `<div class="row run" ${tap}><span class="res ${res[0]}">${res[1]}</span>${r.pid ? av(r.pid, r.name, "sm") : ""}
     <div class="grow"><div><b>${esc(r.name || "?")}</b>${r.seed ? ` <span class="muted small">(seed ${r.seed})</span>` : ""}${r.fav === false ? ' <span class="chip warn">favori</span>' : ""}${r.upset ? ' <span class="chip warn">upset</span>' : ""}${r.pid && C.get("opp_notes", r.pid) ? " 📝" : ""}${r.pid && D.scout[r.pid] ? ' <span title="Fiche de scouting disponible hors ligne">📥</span>' : ""}</div>
       <div class="muted small">${esc(r.label)}${r.score ? " · " + esc(r.score) : ""}</div></div>
     ${r.pid ? `<span class="small">${o ? wl(o.w, o.l) : '<span class="muted">1er set</span>'}</span><span class="muted">›</span>` : ""}</div>`;
@@ -678,7 +692,7 @@ async function sheetScout(pid, name, refresh) {
     <div class="muted small">${p.where ? esc(p.where) + " · " : ""}${r.w}-${r.l} sur ses ${r.w + r.l} derniers sets · <a href="#" data-act="rescout" data-pid="${esc(pid)}" data-name="${esc(name)}">actualiser</a></div>
     <div class="kpis" style="margin-top:10px"><div class="kpi"><b>${mine ? wl(mine.w, mine.l) : "–"}</b><span>toi contre lui</span></div><div class="kpi"><b>${r.chars[0] ? esc(r.chars[0].k) : "?"}</b><span>son perso</span></div><div class="kpi"><b>${r.tours[0] ? ordinal(r.tours[0].place) : "–"}</b><span>dernier tournoi</span></div></div>
     <div class="card"><h3>Ses derniers tournois</h3>${r.tours.map((t) => `<div class="row">${logo(t.timg, t.name)}<div class="grow"><div>${esc(t.name)}</div><div class="muted small">${fmtDate(t.ts)} · ${t.entrants || "?"} j.</div></div><b>${ordinal(t.place)}</b></div>`).join("") || '<div class="muted small">–</div>'}</div>
-    ${r.chars.length ? `<div class="card"><h3>Ses persos</h3>${r.chars.map((c) => `<div class="row"><div class="grow">${esc(c.k)}</div><span class="muted small">${c.n} games · ${Math.round(100 * c.w / c.n)} %</span></div>`).join("")}</div>` : ""}
+    ${r.chars.length ? `<div class="card"><h3>Ses persos</h3>${r.chars.map((c) => `<div class="row">${ci(c.k)}<div class="grow">${esc(c.k)}</div><span class="muted small">${c.n} games · ${Math.round(100 * c.w / c.n)} %</span></div>`).join("")}</div>` : ""}
     <div class="card"><h3>Victoires / défaites récentes</h3>${r.wins.slice(0, 5).map((x) => `<div class="small"><span class="w">V</span> ${esc(x.opp)} ${x.score?.join("-")} · <span class="muted">${esc(x.t)}</span></div>`).join("")}
       ${r.losses.slice(0, 5).map((x) => `<div class="small"><span class="l">D</span> ${esc(x.opp)} ${x.score?.join("-")} · <span class="muted">${esc(x.t)}</span></div>`).join("")}</div>
     ${stageBlock(r.chars[0]?.k || "")}
