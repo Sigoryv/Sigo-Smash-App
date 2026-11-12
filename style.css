@@ -72,3 +72,9 @@ a { color: var(--accent); }
 .stage { border: 1px solid var(--line); background: var(--panel2); border-radius: 18px; padding: 8px 12px; min-height: 40px; font-size: .88em; }
 .stage.struck { text-decoration: line-through; opacity: .4; }
 .chip.shobu { color: #c9a0ff; border-color: currentColor; }
+
+/* v33 : photos de profil et icônes des persos */
+.av, .ci { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--panel2) center / cover no-repeat; color: var(--muted); font-size: .72em; font-weight: 700; }
+.av.sm { width: 28px; height: 28px; font-size: .62em; }
+.ci { border-radius: 8px; background-size: contain; }
+.ci.xs { width: 20px; height: 20px; margin-left: 4px; vertical-align: middle; font-size: .5em; }
