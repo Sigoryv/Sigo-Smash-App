@@ -78,3 +78,20 @@ a { color: var(--accent); }
 .av.sm { width: 28px; height: 28px; font-size: .62em; }
 .ci { border-radius: 8px; background-size: contain; }
 .ci.xs { width: 20px; height: 20px; margin-left: 4px; vertical-align: middle; font-size: .5em; }
+
+/* v42 : le bracket */
+.stage.on { border-color: var(--accent); color: var(--text); }
+.bk-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 8px -14px; padding: 0 14px 10px; }
+.bk-sname { font-size: .7em; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 10px 0 4px; }
+.bk-cols { display: flex; gap: 14px; min-width: max-content; }
+.bk-col { display: flex; flex-direction: column; width: 186px; }
+.bk-rd { font-size: .72em; color: var(--muted); text-align: center; border-bottom: 1px solid var(--line); padding-bottom: 4px; margin-bottom: 6px; }
+.bk-sets { flex: 1; display: flex; flex-direction: column; justify-content: space-around; gap: 8px; }
+.bk-set { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; } .bk-set.me { border-color: var(--accent); }
+.bk-set.on { border-color: #e8a33d; } .bk-set.dim { opacity: .35; } .bk-set.live { box-shadow: inset 3px 0 0 #e5534b; }
+.bk-p { display: flex; align-items: center; gap: 5px; height: 30px; padding-right: 6px; font-size: .8em; }
+.bk-p + .bk-p { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.bk-seed { width: 22px; align-self: stretch; display: flex; align-items: center; justify-content: center; font-size: .78em; color: var(--muted); background: var(--panel2); }
+.bk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-ch { display: inline-flex; gap: 1px; } .bk-sc { width: 18px; text-align: right; }
+.bk-p.win { font-weight: 700; } .bk-p.win .bk-sc { color: var(--green); } .bk-p.lose { color: var(--muted); } .bk-p.me .bk-name { color: var(--accent); }
