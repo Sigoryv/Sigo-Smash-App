@@ -136,3 +136,39 @@ a { color: var(--accent); }
 .day-name { font-size: 1.7em; font-weight: 800; line-height: 1.1; word-break: break-word; }
 .day-o .chip { font-size: .7em; }
 .tmode[data-act] { cursor: pointer; }
+
+/* 🔥 v57 : Jour J plus vivant — set appelé, le match attendu, le bilan, l'écran allumé */
+.day-hero.called { border-left-color: #f0b429; background: color-mix(in srgb, #f0b429 12%, var(--panel)); }
+.day-hero.called .day-k { color: #f0b429; animation: bkblink 1s infinite; }
+.res.called { color: #f0b429; }
+.feed { margin-top: 2px; color: var(--muted); }
+.feed b, .day-feed b { color: var(--text); }
+.day-feed { font-size: 1.05em; line-height: 1.4; margin-top: 6px; color: var(--muted); }
+.chip.wake { cursor: pointer; margin-left: 6px; border: 1px solid var(--line); background: none; color: var(--muted); font: inherit; font-size: .95em; padding: 2px 8px; border-radius: 999px; }
+.chip.wake.on { color: #f0b429; border-color: #f0b429; }
+.day-bilan .kpis { margin: 6px 0 8px; }
+.day-bilan > .small { margin: 4px 0; }
+.day-bilan textarea { width: 100%; min-height: 80px; }
+/* v63 : 🎭 la Line Up */
+.lu-a { position: relative; width: 40px; height: 40px; border-radius: 50%; flex: none; overflow: hidden; background: linear-gradient(180deg, #2c3046, #191b28); display: inline-flex; align-items: center; justify-content: center; }
+.lu-a img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 10%; }
+.lu-a i { font-style: normal; font-weight: 700; font-size: .72em; color: var(--muted); }
+.lu-a.lg { width: 56px; height: 56px; }
+.lu-a.xl { width: 96px; height: 106px; border-radius: 16px; }
+.lu-a.tile { width: 72px; height: 80px; border-radius: 12px; }
+.lu-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.lu-h .btn { min-height: 36px; padding: 6px 12px; }
+.lu-cat-h { margin: 10px 2px 6px; }
+.lu-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.lu-tile { flex: none; width: 86px; display: flex; flex-direction: column; align-items: center; gap: 3px; border: 1px solid var(--line); background: var(--panel2); border-radius: 12px; padding: 6px 4px; color: inherit; }
+.lu-tile b { font-size: .78em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lu-tile.in { border-color: var(--accent); }
+.lu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; margin-top: 10px; }
+.lu-grid .lu-tile { width: auto; }
+.lu-vs { display: flex; align-items: center; gap: 10px; margin: 12px 0 6px; padding: 10px; border-radius: 12px; background: var(--panel2); }
+.lu-vs .grow { flex: 1; min-width: 0; } .lu-vs .btn { min-height: 38px; padding: 6px 12px; }
+.lu-mu-peek { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lu-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; background: var(--line); }
+.lu-dot.good { background: var(--green); } .lu-dot.bad { background: var(--red); } .lu-dot.even { background: var(--accent); }
+.lu-head { display: flex; gap: 12px; align-items: flex-start; } .lu-head .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.lu-rate { padding: 6px 8px; font-size: 14px; } .lu-rate.good { color: var(--green); } .lu-rate.bad { color: var(--red); } .lu-rate.even { color: var(--accent); }
