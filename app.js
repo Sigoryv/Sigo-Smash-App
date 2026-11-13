@@ -317,7 +317,7 @@ async function shobuBracket(eid) {
 const BK_EVERY = () => +localStorage.getItem("sigo.dev.bkpoll") || 60000;
 const BKDRAW = () => drawBracket();
 async function sheetBracket(eid, title) {
-  BK = { eid, title, data: (D.brackets || {})[eid] || null, phase: null, group: null, hl: null, live: true, fresh: new Set(), next: 0 };
+  BK = { eid, title, data: (D.brackets || {})[eid] || null, phase: null, group: null, hl: null, live: true, fresh: new Set(), next: 0, z: 1 };
   if (CUR && CUR !== BKDRAW) BACK = CUR; CUR = BKDRAW;
   drawBracket();
   await refreshBracket(false);
@@ -440,8 +440,51 @@ function drawBracket() {
     ${bkBanner(r)}
     ${r.phases.length > 1 ? `<div class="chips">${r.phases.map((p) => `<button class="stage ${p.id === ph.id ? "on" : ""}" data-act="bk-ph" data-id="${esc(p.id)}">${esc(p.name)}${p.groups.some(meIn) ? " ★" : ""}</button>`).join("")}</div>` : ""}
     ${ph && ph.groups.length > 1 ? `<div class="chips">${ph.groups.map((x) => `<button class="stage ${x.id === g.id ? "on" : ""}" data-act="bk-g" data-id="${esc(x.id)}">${esc(x.name || "Poule")}${meIn(x) ? " ★" : ""}</button>`).join("")}</div>` : ""}
-    <div class="bk-wrap">${w ? `<div class="bk-sname">Winners</div><div class="bk-cols">${w}</div>` : ""}${l ? `<div class="bk-sname">Losers</div><div class="bk-cols">${l}</div>` : ""}${!w && !l ? '<div class="muted small">Pas encore de sets.</div>' : ""}</div>
-    <div class="muted small">Touche un joueur pour suivre son parcours. Glisse pour te déplacer.</div><div class="btns">${closeBtn()}</div>`);
+    ${w || l ? `<div class="bk-tools"><button class="btn small" data-act="bk-mine" ${bkTarget(r) ? "" : "disabled"}>🎯 ${BK.hl ? "Suivi" : "Moi"}</button><span class="grow"></span>
+      <button class="btn small" data-act="bk-z" data-z="-1" aria-label="Dézoomer">－</button><span class="bk-zv muted small" id="bk-zv">${Math.round((BK.z || 1) * 100)} %</span><button class="btn small" data-act="bk-z" data-z="1" aria-label="Zoomer">＋</button><button class="btn small" data-act="bk-fit">⤢ Tout voir</button></div>` : ""}
+    <div class="bk-wrap"><div class="bk-zoom" style="zoom:${BK.z || 1}">${w ? `<div class="bk-sname">Winners</div><div class="bk-cols">${w}</div>` : ""}${l ? `<div class="bk-sname">Losers</div><div class="bk-cols">${l}</div>` : ""}</div>${!w && !l ? '<div class="muted small">Pas encore de sets.</div>' : ""}</div>
+    <div class="muted small">Touche un joueur pour suivre son parcours. Glisse pour te déplacer, pince pour zoomer.</div><div class="btns">${closeBtn()}</div>`);
+  bkPinch();
+}
+/* 🎯 v47 : centrer sur mon set (celui en cours / à venir, sinon le dernier joué), ou sur celui du joueur suivi */
+function bkTarget(r) {
+  const st = bkStatus(r); if (st?.set) return st.set;
+  const f = bkFocus(r), mine = bkAll(r).filter((s) => s.slots.some((x) => x && f(x)));
+  return mine.sort((a, b) => (b.round < 0) - (a.round < 0) || Math.abs(b.round) - Math.abs(a.round))[0] || null;   // (le dernier joué : en losers d'abord, c'est toujours après le winners)
+}
+function bkCenter(id, smooth = true) {
+  const s = bkAll(BK.data).find((x) => x.id === id); if (!s) return;
+  if (BK.phase !== s.pid0 || BK.group !== s.gid) { BK.phase = s.pid0; BK.group = s.gid; drawBracket(); }
+  const n = $(`#sheet [data-bks="${CSS.escape(s.id)}"]`); if (!n) return;
+  n.scrollIntoView({ block: "center", inline: "center", behavior: smooth ? "smooth" : "auto" }); n.classList.add("pulse"); setTimeout(() => n.classList.remove("pulse"), 1600);
+}
+/* 🔍 v47 : zoom du bracket (pincer à deux doigts, ou － / ＋ / ⤢ Tout voir), gardé tant que le bracket est ouvert */
+const BK_ZMIN = 0.2, BK_ZMAX = 1.6;
+function bkZoom(z, cx) {
+  const wrap = $(".bk-wrap"), box = $(".bk-zoom"); if (!wrap || !box) return;
+  const old = BK.z || 1; z = Math.min(BK_ZMAX, Math.max(BK_ZMIN, Math.round(z * 100) / 100)); if (z === old) return;
+  cx = cx ?? wrap.clientWidth / 2;
+  const x = (wrap.scrollLeft + cx) / old;
+  BK.z = z; box.style.zoom = z; wrap.scrollLeft = x * z - cx;
+  const v = $("#bk-zv"); if (v) v.textContent = Math.round(z * 100) + " %";
+}
+function bkFit() {
+  const wrap = $(".bk-wrap"), box = $(".bk-zoom"); if (!wrap || !box) return;
+  const natural = Math.max(...[...box.querySelectorAll(".bk-cols")].map((c) => c.getBoundingClientRect().width)) / (BK.z || 1);   // (largeur à 100 %)
+  bkZoom(Math.floor(100 * Math.min(1, (wrap.clientWidth - 4) / natural)) / 100); wrap.scrollLeft = 0;
+}
+function bkPinch() {
+  const wrap = $(".bk-wrap"); if (!wrap || wrap.dataset.pinch) return; wrap.dataset.pinch = "1";
+  let p = null;
+  const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  wrap.addEventListener("touchstart", (e) => { if (e.touches.length === 2) { p = { d: dist(e.touches), z: BK.z || 1 }; e.preventDefault(); } }, { passive: false });
+  wrap.addEventListener("touchmove", (e) => {
+    if (!p || e.touches.length !== 2) return; e.preventDefault();
+    const r = wrap.getBoundingClientRect(), cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+    bkZoom(p.z * dist(e.touches) / p.d, cx);
+  }, { passive: false });
+  const end = (e) => { if (p && e.touches.length < 2) p = null; };
+  wrap.addEventListener("touchend", end); wrap.addEventListener("touchcancel", end);
 }
 const bkLab = (s) => String(s || "").replace(/^(Winners|Losers) /, "").replace("Round", "Tour").replace("Quarter-Final", "Quart").replace("Semi-Final", "Demie").replace("Final", "Finale");
 
@@ -463,6 +506,7 @@ async function pollLive() {
       if (nx) { alertMe(u.name, nx.res === "live" ? `Ton set contre ${nx.name} est lancé (${nx.label})` : `Prochain adversaire : ${nx.name} (${nx.label})`); if (nx.pid) scout(nx.pid).catch(() => {}); }
     }
     const el = $(`#live-${CSS.escape(ev.eid)}`); if (el) el.innerHTML = liveHTML(r, stats(allSets()));
+    if (CUR === DAYDRAW && DAY === u.tid && !$("#sheet-back").hidden) { sheetDay(u.tid, true); dayFetch(u, u.events.filter((x) => x.me), false); }
   }
   if (D.tab === "home" && $("#sheet-back").hidden) render();
 }
@@ -717,8 +761,10 @@ function viewHome() {
   const live = liveTournaments();
   const ask = live.length && "Notification" in window && Notification.permission === "default";
   return `${live.map((u) => { const r = u.events.map((ev) => (D.live || {})[ev.eid]).find(Boolean), nx = r && (r.sets.find((x) => x.res === "live") || r.sets.find((x) => x.res === "next"));
-      return `<div class="card tmode" data-up="${esc(u.tid)}"><div class="small tmode-h">🏟 MODE TOURNOI · actualisé chaque minute</div><b>${esc(u.name)}</b>
+      return `<div class="card tmode" data-act="day" data-tid="${esc(u.tid)}"><div class="small tmode-h">🏟 MODE TOURNOI · actualisé chaque minute · touche pour le Jour J</div><b>${esc(u.name)}</b>
         <div class="small">${r ? (r.out ? "Éliminé · " : "") + (nx ? (nx.res === "live" ? `● En cours contre <b>${esc(nx.name)}</b>` : `Prochain : <b>${esc(nx.name)}</b> · ${esc(nx.label)}`) : r.out ? "" : "En attente du prochain set") : "Lecture de ta run…"}</div></div>`; }).join("")}
+    ${ups().filter((u) => dayOf(u) && (u.start || 0) * 1000 > Date.now() && u.events.some((ev) => ev.me)).map((u) => `<div class="card tmode" data-act="day" data-tid="${esc(u.tid)}"><div class="small tmode-h">🔥 JOUR J · ${esc(countdown(u.start))}</div><b>${esc(u.name)}</b>
+      <div class="small">Ton 1er set, tes adversaires probables et leur scouting : touche pour ouvrir.</div></div>`).join("")}
     ${ask ? '<button class="btn" data-act="notif" style="width:100%;margin-bottom:10px">🔔 Activer les alertes (prochain adversaire, set lancé)</button>' : ""}
     <div class="kpis"><div class="kpi"><b>${st.pct} %</b><span>sets ${st.W}-${st.L}</span></div><div class="kpi"><b>${st.gpct} %</b><span>games ${st.gw}-${st.gl}</span></div><div class="kpi"><b>${st.tours.length}</b><span>tournois</span></div></div>
     ${up.length ? `<h2>🗓 À venir</h2>${up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div><div class="muted small">${esc(fmtDay(u.start))} · <b>${countdown(u.start)}</b>${u.events[0]?.me?.seed ? ` · seed ${u.events[0].me.seed}` : ""}</div></div>›</div>`).join("")}` : ""}
@@ -869,11 +915,76 @@ function liveHTML(r, st) {
   return `${r.sets.map((x) => runRow(x, st)).join("") || '<div class="muted small">Aucun set pour l\'instant.</div>'}
     <div class="muted small" style="margin-top:6px">${head} · lu ${ago(new Date(r.at * 1000).toISOString())} · <a href="#" data-act="live-refresh">actualiser</a></div>`;
 }
+/* 🔥 v47 : la fiche « Jour J » — tout le tournoi du jour sur un écran : ton set (en cours / prochain) en gros,
+   les adversaires probables avec leur scouting en une ligne, les stages à bannir, ta run. Elle se relit seule
+   (avec le mode tournoi, chaque minute) et prépare le scouting des prochains adversaires. */
+const dayLab = (s) => (/^Losers/.test(s || "") ? "Losers · " : /^Winners/.test(s || "") ? "Winners · " : "") + bkLab(s);
+const dayOf = (u) => { const t = (u.start || 0) * 1000, n = Date.now(); return t <= n + 18 * 3600e3 && t > n - 3 * 864e5; };
+function dayHero(ev, r, path, st) {
+  const nx = r && (r.sets.find((x) => x.res === "live") || r.sets.find((x) => x.res === "next"));
+  const W = r ? r.sets.filter((x) => x.res === "w").length : 0, L = r ? r.sets.filter((x) => x.res === "l").length : 0;
+  const first = !r && (path || []).find((x) => !x.bye);
+  const o = nx ? (nx.res === "live" || nx.name !== "À déterminer" ? { name: nx.name, pid: nx.pid, seed: nx.seed, label: nx.label } : null)
+    : first ? { name: first.e?.tag || first.e?.name || "?", pid: first.e?.pid || "", seed: first.seed, label: first.label } : null;
+  const kind = nx ? (nx.res === "live" ? "live" : o ? "next" : "wait") : r ? (r.out || r.state === "COMPLETED" ? "out" : "wait") : first ? "plan" : "none";
+  const h = { live: "🔴 SET EN COURS", next: "⏭ PROCHAIN SET", wait: "⏳ EN ATTENTE DE TON ADVERSAIRE", out: "🏁 RUN TERMINÉE", plan: "🔮 1ER SET PRÉVU", none: "📋 PAS ENCORE DE SEEDS" }[kind];
+  const h2h = o?.pid && st.opps.find((x) => x.id === o.pid);
+  const scoutB = o && /^\d+$/.test(o.pid || "") ? `<button class="btn" data-scout="${esc(o.pid)}" data-name="${esc(o.name)}">🔭 Scouter</button>` : "";
+  return `<div class="card day-hero ${kind}"><div class="day-k">${h}</div>
+    ${o ? `<div class="day-opp">${o.pid ? av(o.pid, o.name, "") : ""}<div class="grow"><div class="day-name">${esc(o.name)}</div>
+      <div class="small">${o.seed ? `seed ${o.seed} · ` : ""}${esc(dayLab(o.label || nx?.label || ""))}${h2h ? ` · toi contre lui : <b>${wl(h2h.w, h2h.l)}</b>` : " · 1er set contre lui"}</div></div></div>`
+      : kind === "out" ? `<div class="day-name">${W}–${L} en sets</div>` : `<div class="muted small">${kind === "wait" ? "Ton set précédent est fini ; l'adversaire du suivant n'est pas encore connu." : "Ta run apparaîtra quand les seeds seront publiées."}</div>`}
+    <div class="btns" style="margin-top:8px">${scoutB}<button class="btn" data-act="bracket" data-eid="${esc(ev.eid)}" data-title="${esc(ev.name)}">🏆 Bracket</button></div></div>
+    ${o?.pid ? stageBlock(D.scout[o.pid]?.chars?.[0]?.k || "") : ""}`;
+}
+/* les adversaires probables : celui du prochain set, puis ceux de la projection (seeds), sans ceux déjà joués */
+function dayOpps(ev, r, path) {
+  const seen = new Set((r?.sets || []).filter((x) => x.res === "w" || x.res === "l").map((x) => x.pid || x.name)), out = [];
+  for (const x of (r?.sets || []).filter((x) => (x.res === "live" || x.res === "next") && x.name !== "À déterminer")) out.push({ name: x.name, pid: x.pid, seed: x.seed, why: x.res === "live" ? "en cours" : "prochain set" });
+  for (const x of path || []) if (!x.bye && x.e) out.push({ name: x.e.tag || x.e.name, pid: x.e.pid || "", seed: x.seed, why: dayLab(x.label) + " (projection)" });
+  const u = new Set();
+  return out.filter((x) => { const k = x.pid || x.name; if (seen.has(k) || u.has(k)) return false; u.add(k); return true; }).slice(0, 3);
+}
+function dayScoutLine(x, st) {
+  const c = x.pid && D.scout[x.pid], h2h = x.pid && st.opps.find((o) => o.id === x.pid);
+  const best = c?.tours?.filter((t) => t.place).sort((a, b) => a.place - b.place)[0];
+  return c ? `${(c.chars || []).slice(0, 2).map((k) => ci(k.k, "xs")).join("")} <b>${esc(c.chars?.[0]?.k || "?")}</b> · ${c.w}–${c.l} récemment${best ? ` · ${ordinal(best.place)} à ${esc(best.name)}` : ""} · toi : ${h2h ? wl(h2h.w, h2h.l) : "jamais joué"}`
+    : /^\d+$/.test(x.pid || "") ? '<span class="muted">scouting en préparation…</span>' : `<span class="muted">pas de fiche start.gg${h2h ? " · toi : " + wl(h2h.w, h2h.l) : ""}</span>`;
+}
+let DAY = null;
+const DAYDRAW = () => DAY && sheetDay(DAY, true);
+function sheetDay(tid, redraw) {
+  const u = ups().find((x) => x.tid === tid); if (!u) return;
+  if (!redraw && CUR && CUR !== DAYDRAW) BACK = CUR;
+  DAY = tid; CUR = DAYDRAW;
+  const st = stats(allSets()), started = (u.start || 0) * 1000 <= Date.now(), keep = $("#sheet").scrollTop;
+  const evs = u.events.filter((ev) => ev.me);
+  sheet(`<div class="day-top"><div class="small tmode-h">🔥 JOUR J · ${started ? "en cours · actualisé chaque minute" : esc(countdown(u.start))}</div><h2 style="margin:2px 0 0">${esc(u.name)}</h2>
+      <div class="muted small">${esc(fmtDay(u.start))}${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}</div></div>
+    ${evs.map((ev) => { const r = (D.live || {})[ev.eid], path = bracketPath(ev), ops = dayOpps(ev, r, path);
+      return `${u.events.length > 1 ? `<h3>${esc(ev.name)}${ev.me?.seed ? ` · <span class="chip">ta seed ${ev.me.seed}</span>` : ""}</h3>` : ""}
+        ${dayHero(ev, r, path, st)}
+        ${ops.length ? `<div class="card"><h3>👀 Adversaires probables</h3>${ops.map((x) => `<div class="row day-o" ${/^\d+$/.test(x.pid || "") ? `data-scout="${esc(x.pid)}" data-name="${esc(x.name)}"` : x.pid ? `data-opp="${esc(x.pid)}"` : ""}>${x.pid ? av(x.pid, x.name, "sm") : ""}
+          <div class="grow"><div><b>${esc(x.name)}</b>${x.seed ? ` <span class="muted small">seed ${x.seed}</span>` : ""} <span class="chip">${esc(x.why)}</span></div><div class="small">${dayScoutLine(x, st)}</div></div>›</div>`).join("")}</div>` : ""}
+        <div class="card"><h3>🏁 Ma run</h3>${r ? liveHTML(r, st) : path ? path.map((x) => x.bye ? "" : runRow({ label: x.label, name: x.e?.tag || x.e?.name, pid: x.e?.pid, seed: x.seed, fav: x.fav, res: "next" }, st)).join("") : '<div class="muted small">Seeds pas encore publiées.</div>'}</div>`; }).join("") || '<div class="card muted">Tu n\'es inscrit à aucune épreuve de ce tournoi.</div>'}
+    <div class="btns">${closeBtn()}</div>`);
+  if (redraw) $("#sheet").scrollTop = keep;
+  if (!redraw) dayFetch(u, evs, started);
+}
+async function dayFetch(u, evs, started) {
+  if (started) { await loadLive(u); if (CUR === DAYDRAW && DAY === u.tid) sheetDay(u.tid, true); }
+  for (const ev of evs) for (const x of dayOpps(ev, (D.live || {})[ev.eid], bracketPath(ev))) {
+    if (!/^\d+$/.test(x.pid || "") || (D.scout[x.pid] && now() - D.scout[x.pid].at < 12 * 3600)) continue;
+    try { await scout(x.pid); } catch (_) { break; }
+    if (CUR === DAYDRAW && DAY === u.tid && !$("#sheet-back").hidden) sheetDay(u.tid, true);
+  }
+}
 function sheetUp(tid) {
   const u = ups().find((x) => x.tid === tid); if (!u) return;
   CUR = () => sheetUp(tid);
   const st = stats(allSets()), started = (u.start || 0) * 1000 <= Date.now();
   sheet(`${tourHead(u.name, u.tbanner, `${esc(fmtDay(u.start))} · <b>${started ? "commencé" : countdown(u.start)}</b>${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}`, u.url || (u.slug ? "https://www.start.gg/" + u.slug : ""))}
+    ${dayOf(u) && u.events.some((ev) => ev.me) ? `<button class="btn accent" data-act="day" data-tid="${esc(u.tid)}" style="width:100%;margin-bottom:10px">🔥 Mode Jour J</button>` : ""}
     ${u.events.map((ev) => { const path = bracketPath(ev);
       let body;
       const shobu = String(ev.eid).startsWith("shobu:");
@@ -994,12 +1105,11 @@ document.addEventListener("click", async (e) => {
   if (act === "bk-refresh") return refreshBracket(false);
   if (act === "bk-live") { BK.live = !BK.live; BK.next = Date.now() + BK_EVERY(); return drawBracket(); }
   if (act === "bk-me") { BK.hl = null; return drawBracket(); }
-  if (act === "bk-go") {               // (ouvre la phase / poule du set, et le centre)
-    const s = bkAll(BK.data).find((x) => x.id === el.dataset.id); if (!s) return;
-    BK.phase = s.pid0; BK.group = s.gid; drawBracket();
-    const n = $(`#sheet [data-bks="${CSS.escape(s.id)}"]`); if (n) { n.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" }); n.classList.add("pulse"); setTimeout(() => n.classList.remove("pulse"), 1600); }
-    return;
-  }
+  if (act === "bk-go") { BK.phase = null; return bkCenter(el.dataset.id); }      // (ouvre la phase / poule du set, et le centre)
+  if (act === "day") return sheetDay(el.dataset.tid);
+  if (act === "bk-mine") { const t = bkTarget(BK.data); return t ? bkCenter(t.id) : toast("Pas de set à toi dans ce bracket.", true); }
+  if (act === "bk-z") return bkZoom((BK.z || 1) * (+el.dataset.z > 0 ? 1.25 : 0.8));
+  if (act === "bk-fit") return bkFit();
   if (act === "bk-ph") { BK.phase = el.dataset.id; BK.group = null; BK.hl = null; return drawBracket(); }
   if (act === "bk-g") { BK.group = el.dataset.id; return drawBracket(); }
   if (act === "strike") { el.classList.toggle("struck"); return strikeHint(el.closest(".stages")); }
