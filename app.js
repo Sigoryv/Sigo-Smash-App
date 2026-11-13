@@ -268,7 +268,7 @@ const Q_BR = `query Br($id: ID!, $page: Int!, $per: Int!) { event(id: $id) { id 
   phases { id name phaseOrder }
   sets(page: $page, perPage: $per, sortType: ROUND) { pageInfo { totalPages } nodes { id round fullRoundText identifier state winnerId displayScore
     phaseGroup { id displayIdentifier phase { id } }
-    slots { entrant { id name initialSeedNum participants { player { id } } } standing { stats { score { value } } } }
+    slots { prereqId prereqType entrant { id name initialSeedNum participants { player { id } } } standing { stats { score { value } } } }
     games { selections { entrant { id } selectionValue } } } } } }`;
 let BK = null;
 async function loadBracket(eid) {
@@ -284,7 +284,8 @@ async function loadBracket(eid) {
           for (const g of n.games || []) for (const x of g.selections || []) { const k = String(x.entrant?.id || ""); if (k && x.selectionValue != null) (chars[k] = chars[k] || []).includes(x.selectionValue) || chars[k].push(x.selectionValue); }
           sets.push({ id: String(n.id), round: n.round || 0, label: n.fullRoundText || "", ident: n.identifier || "", state: { 1: "next", 2: "live", 3: "done" }[n.state] || "next",
             winner: String(n.winnerId || ""), chars, phase: String(n.phaseGroup?.phase?.id || ""), group: String(n.phaseGroup?.id || ""), gname: n.phaseGroup?.displayIdentifier || "",
-            slots: [0, 1].map((i) => { const x = (n.slots || [])[i], e = x?.entrant; return e ? { id: String(e.id), name: e.name || "?", seed: e.initialSeedNum, pid: String(e.participants?.[0]?.player?.id || ""), score: x.standing?.stats?.score?.value } : null; }) });
+            slots: [0, 1].map((i) => { const x = (n.slots || [])[i], e = x?.entrant; return e ? { id: String(e.id), name: e.name || "?", seed: e.initialSeedNum, pid: String(e.participants?.[0]?.player?.id || ""), score: x.standing?.stats?.score?.value } : null; }),
+            pre: [0, 1].map((i) => { const x = (n.slots || [])[i]; return x?.prereqType === "set" && x.prereqId != null ? String(x.prereqId) : null; }) });
         }
         page++;
       }
@@ -379,6 +380,32 @@ function bkBanner(r) {
   return `<div class="card bk-live ${st.kind}">${BK.hl ? `<div class="muted small">⭐ Suivi : ${esc(st.who.name)} · <a href="#" data-act="bk-me">revenir à moi</a></div>` : ""}${body}${go || scoutB ? `<div class="btns" style="margin-top:6px">${go}${scoutB}</div>` : ""}</div>`;
 }
 const isMeBk = (x, r) => !!r.me && (x.pid === r.me || x.id === r.me);
+/* 🌳 v46 : chaque set à sa vraie place dans l'arbre. Avec 25 joueurs (pas une puissance de 2), le 1er tour a des trous :
+   on suit les liens « ce slot vient de tel set » (start.gg : prereqId ; sinon on les déduit des vainqueurs) et chaque set
+   se met en face de ceux qui le nourrissent. Renvoie null si ce n'est pas un arbre (round robin…) : ancien rendu. */
+function bkTreeLayout(list, keys, cmp) {
+  const byId = new Map(list.map((s) => [s.id, s])), kids = new Map(list.map((s) => [s.id, []])), parent = new Map();
+  const hasPre = list.some((s) => (s.pre || []).some(Boolean)), A = (s) => Math.abs(s.round);
+  for (const s of list) for (let i = 0; i < 2; i++) {
+    let c = null;
+    if (hasPre) c = s.pre?.[i] ? byId.get(String(s.pre[i])) || null : null;
+    else { const x = s.slots[i]; if (x) c = list.filter((o) => A(o) < A(s) && o.winner === x.id && o.slots.some((y) => y && y.id === x.id)).sort((a, b) => A(b) - A(a))[0] || null; }
+    if (c && A(c) < A(s) && !parent.has(c.id)) { parent.set(c.id, s.id); kids.get(s.id).push(c); }
+  }
+  const last = keys[keys.length - 1], roots = list.filter((s) => !parent.has(s.id));
+  if (keys.length < 2 || !parent.size || roots.some((s) => s.round !== last)) return null;
+  let n = 0; const y = new Map();
+  const walk = (s) => { const k = kids.get(s.id); if (!k.length) { y.set(s.id, n++ + 0.5); return; } k.forEach(walk); y.set(s.id, k.reduce((a, c) => a + y.get(c.id), 0) / k.length); };
+  roots.sort(cmp).forEach(walk);
+  return { units: n, y, kids, roots };
+}
+/* une colonne placée : chaque set centré sur sa hauteur dans l'arbre, et les traits vers ceux de la colonne d'avant */
+function bkPlaced(sets, L, U, gap, prev, draw) {
+  const H = L.units * U, lines = [];
+  for (const s of sets) for (const c of L.kids.get(s.id) || []) if (prev.has(c.id)) { const a = L.y.get(c.id) * U, b = L.y.get(s.id) * U; lines.push(`M0 ${a} H${gap / 2} V${b} H${gap}`); }
+  const svg = lines.length ? `<svg class="bk-lines" width="${gap}" height="${H}" style="left:-${gap}px"><path d="${lines.join(" ")}"/></svg>` : "";
+  return `<div class="bk-sets bk-abs" style="height:${H}px">${svg}${sets.map((s) => `<div class="bk-slot" style="top:${(L.y.get(s.id) - 0.5) * U}px;height:${U}px">${draw(s)}</div>`).join("")}</div>`;
+}
 function drawBracket() {
   const r = BK?.data;
   if (!r) return sheet(`<h2>🏆 ${esc(BK.title)}</h2><div class="card muted">Lecture du bracket…</div><div class="btns">${closeBtn()}</div>`);
@@ -388,9 +415,18 @@ function drawBracket() {
   const ph = r.phases.find((p) => p.id === BK.phase), g = ph?.groups.find((x) => x.id === BK.group) || ph?.groups[0];
   const isGF = (s) => s.round > 0 && /grand/i.test(s.label);
   const col = (lab, l) => `<div class="bk-col"><div class="bk-rd">${esc(lab)}</div><div class="bk-sets">${l.map(bkSet).join("")}</div></div>`;
+  const cmp = (a, b) => a.ident.length - b.ident.length || a.ident.localeCompare(b.ident) || (a.order || 0) - (b.order || 0);
   const side = (pos) => { const m = new Map(); for (const s of (g?.sets || [])) if ((pos ? s.round > 0 : s.round < 0) && !isGF(s)) { if (!m.has(s.round)) m.set(s.round, []); m.get(s.round).push(s); }
-    const cols = [...m.keys()].sort((a, b) => Math.abs(a) - Math.abs(b)).map((k) => col(bkLab(m.get(k)[0].label), m.get(k).sort((a, b) => a.ident.length - b.ident.length || a.ident.localeCompare(b.ident) || (a.order || 0) - (b.order || 0))));
-    if (pos) (g?.sets || []).filter(isGF).sort((a, b) => /reset/i.test(a.label) - /reset/i.test(b.label) || a.id.localeCompare(b.id, undefined, { numeric: true })).forEach((s, i) => cols.push(col(i ? "Grande finale (reset)" : "Grande finale", [s])));
+    const keys = [...m.keys()].sort((a, b) => Math.abs(a) - Math.abs(b)), L = bkTreeLayout([...m.values()].flat(), keys, cmp), U = 70, GAP = 14;
+    let prev = new Set();
+    const cols = keys.map((k) => { const l = m.get(k).sort(cmp);
+      if (!L) return col(bkLab(l[0].label), l);
+      const html = `<div class="bk-col"><div class="bk-rd">${esc(bkLab(l[0].label))}</div>${bkPlaced(l, L, U, GAP, prev, bkSet)}</div>`; prev = new Set(l.map((x) => x.id)); return html; });
+    if (pos) (g?.sets || []).filter(isGF).sort((a, b) => /reset/i.test(a.label) - /reset/i.test(b.label) || a.id.localeCompare(b.id, undefined, { numeric: true })).forEach((s, i) => {
+      const lab = i ? "Grande finale (reset)" : "Grande finale";
+      if (!L) return cols.push(col(lab, [s]));
+      const yy = L.roots.reduce((a, r) => a + L.y.get(r.id), 0) / L.roots.length, G = { units: L.units, y: new Map([[s.id, yy]]), kids: new Map() };
+      cols.push(`<div class="bk-col"><div class="bk-rd">${esc(lab)}</div>${bkPlaced([s], G, U, GAP, new Set(), bkSet)}</div>`); });
     return cols.join(""); };
   const bkSet = (s) => {
     const me = s.slots.some((x) => x && isMeBk(x, r)), on = BK.hl && s.slots.some((x) => x && x.id === BK.hl);
