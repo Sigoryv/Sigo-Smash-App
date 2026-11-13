@@ -118,3 +118,21 @@ a { color: var(--accent); }
 .bk-slot { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; justify-content: center; }
 .bk-lines { position: absolute; top: 0; overflow: visible; pointer-events: none; }
 .bk-lines path { fill: none; stroke: var(--line); stroke-width: 1.5; }
+
+/* 🎯🔍 v47 : centrer sur moi, zoom du bracket */
+.bk-tools { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; } .bk-tools .grow { flex: 1; }
+.bk-tools .btn[disabled] { opacity: .4; } .bk-zv { min-width: 42px; text-align: center; }
+.bk-wrap { touch-action: pan-x pan-y; }
+
+/* 🔥 v47 : la fiche Jour J */
+.day-top { margin-bottom: 10px; }
+.day-hero { border-left: 5px solid var(--accent); padding: 14px; }
+.day-hero.live { border-left-color: #e5534b; background: color-mix(in srgb, #e5534b 10%, var(--panel)); }
+.day-hero.out, .day-hero.none { border-left-color: var(--line); }
+.day-k { font-size: .78em; font-weight: 800; letter-spacing: .08em; color: var(--accent); }
+.day-hero.live .day-k { color: #e5534b; animation: bkblink 1.6s infinite; }
+.day-opp { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.day-opp .av { width: 54px; height: 54px; font-size: 1.1em; flex: none; }
+.day-name { font-size: 1.7em; font-weight: 800; line-height: 1.1; word-break: break-word; }
+.day-o .chip { font-size: .7em; }
+.tmode[data-act] { cursor: pointer; }
