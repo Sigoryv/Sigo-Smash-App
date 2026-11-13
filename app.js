@@ -111,7 +111,9 @@ const Q_ENT = `query Ent($id: ID!, $page: Int!) { event(id: $id) { id entrants(q
   nodes { id name initialSeedNum participants { player { id gamerTag prefix } } } } } }`;
 const Q_RUN = `query Run($id: ID!, $ent: ID!) { event(id: $id) { id state sets(page: 1, perPage: 30, filters: {entrantIds: [$ent]}) { nodes {
   id state fullRoundText round winnerId displayScore completedAt startedAt
-  slots { entrant { id name initialSeedNum participants { player { id gamerTag } } } standing { stats { score { value } } } } } } } }`;
+  slots { prereqId prereqType entrant { id name initialSeedNum participants { player { id gamerTag } } } standing { stats { score { value } } } } } } } }`;
+/* 🔥 v57 : le match qui désignera ton prochain adversaire (« tu attends le vainqueur de… ») */
+const Q_FEED = `query Feed($id: ID!) { set(id: $id) { id state fullRoundText slots { entrant { name } standing { stats { score { value } } } } } }`;
 const Q_SCOUT = `query Scout($id: ID!, $page: Int!, $per: Int!) { player(id: $id) { id gamerTag prefix user { slug location { city country } }
   sets(page: $page, perPage: $per) { pageInfo { totalPages } nodes { ${SET_FIELDS} } } } }`;
 async function gql(query, variables) {
@@ -493,7 +495,18 @@ function liveTournaments() {
   const t = Date.now();
   return ups().filter((u) => (u.start || 0) * 1000 <= t && (u.start || 0) * 1000 > t - 3 * 864e5 && u.events.some(liveOk));
 }
-const nextKey = (r) => (r?.sets || []).filter((x) => x.res === "next" || x.res === "live").map((x) => x.res + ":" + (x.pid || x.name)).join("|");
+const nextKey = (r) => (r?.sets || []).filter((x) => x.res === "next" || x.res === "live" || x.res === "called").map((x) => x.res + ":" + (x.pid || x.name)).join("|");
+/* 🔥 v57 : ce qui a changé depuis la dernière lecture, en une alerte : le set fini, puis la suite (appelé, lancé, prochain, éliminé) */
+function runNews(before, r) {
+  const k = (x) => x.id || x.label + "|" + x.name, was = new Map((before.sets || []).map((x) => [k(x), x])), parts = [];
+  for (const x of r.sets) { const b = was.get(k(x)); if ((x.res === "w" || x.res === "l") && b && b.res !== x.res) parts.push(`${x.res === "w" ? "✅ Victoire" : "❌ Défaite"} ${x.score} contre ${x.name}`); }
+  const nx = r.sets.find((x) => x.res === "called") || r.sets.find((x) => x.res === "live") || r.sets.find((x) => x.res === "next" && x.name !== "À déterminer"), lab = (x) => dayLab(x.label);
+  let pid = "";
+  if (r.out && !before.out) { const W = r.sets.filter((x) => x.res === "w").length, L = r.sets.filter((x) => x.res === "l").length; parts.push(`🏁 Éliminé · ${W}–${L} en sets : ton bilan est prêt`); }
+  else if (nx && nx.res === "called" && was.get(k(nx))?.res !== "called") { parts.push(`📣 Ton set contre ${nx.name} est appelé (${lab(nx)})`); pid = nx.pid; }
+  else if (nx && nextKey(before) !== nextKey(r)) { parts.push(nx.res === "live" ? `Ton set contre ${nx.name} est lancé (${lab(nx)})` : `Prochain adversaire : ${nx.name} (${lab(nx)})`); pid = nx.pid; }
+  return { text: parts.join(" → "), pid };
+}
 async function pollLive() {
   if (document.hidden || (!D.cfg.sgToken && !D.cfg.shobuKey)) return;
   const lt = liveTournaments(); if (!lt.length) return;
@@ -501,10 +514,7 @@ async function pollLive() {
     if (!liveOk(ev)) continue;
     const before = (D.live || {})[ev.eid];
     let r; try { r = await liveRun(ev); } catch (_) { continue; }
-    if (before && nextKey(before) !== nextKey(r)) {
-      const nx = r.sets.find((x) => x.res === "live") || r.sets.find((x) => x.res === "next");
-      if (nx) { alertMe(u.name, nx.res === "live" ? `Ton set contre ${nx.name} est lancé (${nx.label})` : `Prochain adversaire : ${nx.name} (${nx.label})`); if (nx.pid) scout(nx.pid).catch(() => {}); }
-    }
+    if (before) { const m = runNews(before, r); if (m.text) { alertMe(u.name, m.text); if (m.pid) scout(m.pid).catch(() => {}); } }
     const el = $(`#live-${CSS.escape(ev.eid)}`); if (el) el.innerHTML = liveHTML(r, stats(allSets()));
     if (CUR === DAYDRAW && DAY === u.tid && !$("#sheet-back").hidden) { sheetDay(u.tid, true); dayFetch(u, u.events.filter((x) => x.me), false); }
   }
@@ -517,7 +527,10 @@ function alertMe(title, body) {
   if ("Notification" in window && Notification.permission === "granted" && navigator.serviceWorker?.controller)
     navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, { body, icon: "icon-192.png", badge: "icon-192.png", tag: "sigo-run", renotify: true })).catch(() => {});
 }
-setInterval(pollLive, +localStorage.getItem("sigo.dev.poll") || 60000);
+/* ⏱ v57 : toutes les 20 s quand un de tes sets approche (appelé, en cours, prochain, en attente), sinon chaque minute */
+const runHot = () => liveTournaments().some((u) => u.events.some((ev) => { const r = (D.live || {})[ev.eid]; return r && !r.out && r.state !== "COMPLETED" && r.sets.some((x) => ["live", "next", "called", "wait"].includes(x.res)); }));
+const pollDelay = () => +localStorage.getItem("sigo.dev.poll") || (runHot() ? 20000 : 60000);
+(function pollLoop() { setTimeout(async () => { try { await pollLive(); } catch (_) {} pollLoop(); }, pollDelay()); })();
 document.addEventListener("visibilitychange", () => { if (!document.hidden) pollLive(); });
 
 /* ------------------------------------------------------------ 📥 le scouting préparé d'avance (lisible hors ligne) */
@@ -761,7 +774,7 @@ function viewHome() {
   const live = liveTournaments();
   const ask = live.length && "Notification" in window && Notification.permission === "default";
   return `${live.map((u) => { const r = u.events.map((ev) => (D.live || {})[ev.eid]).find(Boolean), nx = r && (r.sets.find((x) => x.res === "live") || r.sets.find((x) => x.res === "next"));
-      return `<div class="card tmode" data-act="day" data-tid="${esc(u.tid)}"><div class="small tmode-h">🏟 MODE TOURNOI · actualisé chaque minute · touche pour le Jour J</div><b>${esc(u.name)}</b>
+      return `<div class="card tmode" data-act="day" data-tid="${esc(u.tid)}"><div class="small tmode-h">🏟 MODE TOURNOI · ${runHot() ? "actualisé toutes les 20 s" : "actualisé chaque minute"} · touche pour le Jour J</div><b>${esc(u.name)}</b>
         <div class="small">${r ? (r.out ? "Éliminé · " : "") + (nx ? (nx.res === "live" ? `● En cours contre <b>${esc(nx.name)}</b>` : `Prochain : <b>${esc(nx.name)}</b> · ${esc(nx.label)}`) : r.out ? "" : "En attente du prochain set") : "Lecture de ta run…"}</div></div>`; }).join("")}
     ${ups().filter((u) => dayOf(u) && (u.start || 0) * 1000 > Date.now() && u.events.some((ev) => ev.me)).map((u) => `<div class="card tmode" data-act="day" data-tid="${esc(u.tid)}"><div class="small tmode-h">🔥 JOUR J · ${esc(countdown(u.start))}</div><b>${esc(u.name)}</b>
       <div class="small">Ton 1er set, tes adversaires probables et leur scouting : touche pour ouvrir.</div></div>`).join("")}
@@ -860,13 +873,18 @@ function tourHead(name, banner, sub, slug) {
     <div class="thead"><h2 style="margin:0;flex:1">${esc(name)}</h2>${sgLink(slug)}</div><div class="muted small">${sub}</div></div>`;
 }
 /* une ligne de « ma run » : un clic ouvre la fiche du joueur */
+/* « le vainqueur de Leon contre Kawa · en cours 1-0 » */
+function feedText(f) {
+  const sc = f.sa != null && f.sb != null && f.sa >= 0 && f.sb >= 0 ? ` ${f.sa}-${f.sb}` : "";
+  return `le vainqueur de <b>${esc(f.a)}</b> contre <b>${esc(f.b)}</b> · ${f.state === 2 ? "en cours" + sc : f.state === 6 ? "appelé" : f.state === 3 ? "terminé" + sc : "pas commencé"}`;
+}
 function runRow(r, st) {
   const o = r.pid && st.opps.find((x) => x.id === r.pid);
   const tap = r.pid ? (/^\d+$/.test(r.pid) ? `data-scout="${esc(r.pid)}" data-name="${esc(r.name)}"` : `data-opp="${esc(r.pid)}"`) : "";
-  const res = { w: ["w", "V"], l: ["l", "D"], live: ["live", "●"], next: ["", "…"], bye: ["", "–"], wait: ["", "?"] }[r.res] || ["", "·"];
+  const res = { w: ["w", "V"], l: ["l", "D"], live: ["live", "●"], called: ["called", "📣"], next: ["", "…"], bye: ["", "–"], wait: ["", "?"] }[r.res] || ["", "·"];
   return `<div class="row run" ${tap}><span class="res ${res[0]}">${res[1]}</span>${r.pid ? av(r.pid, r.name, "sm") : ""}
     <div class="grow"><div><b>${esc(r.name || "?")}</b>${r.seed ? ` <span class="muted small">(seed ${r.seed})</span>` : ""}${r.fav === false ? ' <span class="chip warn">favori</span>' : ""}${r.upset ? ' <span class="chip warn">upset</span>' : ""}${r.pid && C.get("opp_notes", r.pid) ? " 📝" : ""}${r.pid && D.scout[r.pid] ? ' <span title="Fiche de scouting disponible hors ligne">📥</span>' : ""}</div>
-      <div class="muted small">${esc(r.label)}${r.score ? " · " + esc(r.score) : ""}</div></div>
+      <div class="muted small">${esc(dayLab(r.label))}${r.score && !r.feedInfo ? " · " + esc(r.score) : ""}</div>${r.feedInfo ? `<div class="small feed">⏳ ${feedText(r.feedInfo)}</div>` : ""}</div>
     ${r.pid ? `<span class="small">${o ? wl(o.w, o.l) : '<span class="muted">1er set</span>'}</span><span class="muted">›</span>` : ""}</div>`;
 }
 function sheetTour(k) {
@@ -900,10 +918,17 @@ async function liveRun(ev) {
     const oe = opp?.entrant, pl = (((oe?.participants || [])[0]) || {}).player || {};
     const sc = (x) => ((((x || {}).standing || {}).stats || {}).score || {}).value;
     const done = n.state === 3 || !!n.winnerId;
-    return { order: n.completedAt || n.startedAt || (done ? 0 : 9e12) + (n.round < 0 ? 1e6 : 0) + Math.abs(n.round || 0), name: oe ? (oe.name || pl.gamerTag) : "À déterminer", pid: String(pl.id || ""),
-      seed: oe?.initialSeedNum ?? null, label: n.fullRoundText || "", res: done ? (String(n.winnerId) === String(ev.me.id) ? "w" : "l") : !oe ? "wait" : n.state === 2 ? "live" : "next",
-      score: done ? `${sc(mine) ?? "?"}-${sc(opp) ?? "?"}` : n.state === 2 ? "en cours" : !oe ? "adversaire pas encore connu" : "à jouer", upset: false };
+    return { id: String(n.id), feed: !oe && opp?.prereqType === "set" && opp.prereqId ? String(opp.prereqId) : "",
+      order: n.completedAt || n.startedAt || (done ? 0 : 9e12) + (n.round < 0 ? 1e6 : 0) + Math.abs(n.round || 0), name: oe ? (oe.name || pl.gamerTag) : "À déterminer", pid: String(pl.id || ""),
+      seed: oe?.initialSeedNum ?? null, label: n.fullRoundText || "", res: done ? (String(n.winnerId) === String(ev.me.id) ? "w" : "l") : !oe ? "wait" : n.state === 2 ? "live" : n.state === 6 ? "called" : "next",
+      score: done ? `${sc(mine) ?? "?"}-${sc(opp) ?? "?"}` : n.state === 2 ? "en cours" : n.state === 6 ? "📣 appelé !" : !oe ? "adversaire pas encore connu" : "à jouer", upset: false };
   }).sort((a, b) => a.order - b.order);
+  const w = sets.find((x) => x.res === "wait" && x.feed);                    // (le prochain set sans adversaire : le match qui le désignera)
+  if (w) try {
+    const f = (await gql(Q_FEED, { id: w.feed })).set;
+    if (f) { const sl = f.slots || [], sc2 = (x) => x?.standing?.stats?.score?.value;
+      w.feedInfo = { a: sl[0]?.entrant?.name || "?", b: sl[1]?.entrant?.name || "?", sa: sc2(sl[0]), sb: sc2(sl[1]), state: f.state, label: f.fullRoundText || "" }; }
+  } catch (_) {}
   const losses = sets.filter((x) => x.res === "l").length;
   const r = { at: now(), state: d.state, sets, out: losses >= 2 || (losses >= 1 && d.state === "COMPLETED") };
   D.live = D.live || {}; D.live[ev.eid] = r; save();
@@ -921,19 +946,19 @@ function liveHTML(r, st) {
 const dayLab = (s) => (/^Losers/.test(s || "") ? "Losers · " : /^Winners/.test(s || "") ? "Winners · " : "") + bkLab(s);
 const dayOf = (u) => { const t = (u.start || 0) * 1000, n = Date.now(); return t <= n + 18 * 3600e3 && t > n - 3 * 864e5; };
 function dayHero(ev, r, path, st) {
-  const nx = r && (r.sets.find((x) => x.res === "live") || r.sets.find((x) => x.res === "next"));
+  const nx = r && (r.sets.find((x) => x.res === "called") || r.sets.find((x) => x.res === "live") || r.sets.find((x) => x.res === "next" || x.res === "wait"));
   const W = r ? r.sets.filter((x) => x.res === "w").length : 0, L = r ? r.sets.filter((x) => x.res === "l").length : 0;
   const first = !r && (path || []).find((x) => !x.bye);
-  const o = nx ? (nx.res === "live" || nx.name !== "À déterminer" ? { name: nx.name, pid: nx.pid, seed: nx.seed, label: nx.label } : null)
+  const o = nx ? (nx.res !== "wait" && (nx.res === "live" || nx.res === "called" || nx.name !== "À déterminer") ? { name: nx.name, pid: nx.pid, seed: nx.seed, label: nx.label } : null)
     : first ? { name: first.e?.tag || first.e?.name || "?", pid: first.e?.pid || "", seed: first.seed, label: first.label } : null;
-  const kind = nx ? (nx.res === "live" ? "live" : o ? "next" : "wait") : r ? (r.out || r.state === "COMPLETED" ? "out" : "wait") : first ? "plan" : "none";
-  const h = { live: "🔴 SET EN COURS", next: "⏭ PROCHAIN SET", wait: "⏳ EN ATTENTE DE TON ADVERSAIRE", out: "🏁 RUN TERMINÉE", plan: "🔮 1ER SET PRÉVU", none: "📋 PAS ENCORE DE SEEDS" }[kind];
+  const kind = r && (r.out || r.state === "COMPLETED") ? "out" : nx ? (nx.res === "live" ? "live" : nx.res === "called" ? "called" : o ? "next" : "wait") : r ? "wait" : first ? "plan" : "none";
+  const h = { live: "🔴 SET EN COURS", called: "📣 TON SET EST APPELÉ", next: "⏭ PROCHAIN SET", wait: "⏳ EN ATTENTE DE TON ADVERSAIRE", out: "🏁 RUN TERMINÉE", plan: "🔮 1ER SET PRÉVU", none: "📋 PAS ENCORE DE SEEDS" }[kind];
   const h2h = o?.pid && st.opps.find((x) => x.id === o.pid);
   const scoutB = o && /^\d+$/.test(o.pid || "") ? `<button class="btn" data-scout="${esc(o.pid)}" data-name="${esc(o.name)}">🔭 Scouter</button>` : "";
   return `<div class="card day-hero ${kind}"><div class="day-k">${h}</div>
     ${o ? `<div class="day-opp">${o.pid ? av(o.pid, o.name, "") : ""}<div class="grow"><div class="day-name">${esc(o.name)}</div>
       <div class="small">${o.seed ? `seed ${o.seed} · ` : ""}${esc(dayLab(o.label || nx?.label || ""))}${h2h ? ` · toi contre lui : <b>${wl(h2h.w, h2h.l)}</b>` : " · 1er set contre lui"}</div></div></div>`
-      : kind === "out" ? `<div class="day-name">${W}–${L} en sets</div>` : `<div class="muted small">${kind === "wait" ? "Ton set précédent est fini ; l'adversaire du suivant n'est pas encore connu." : "Ta run apparaîtra quand les seeds seront publiées."}</div>`}
+      : kind === "out" ? `<div class="day-name">${W}–${L} en sets</div>` : `<div class="muted small">${kind === "wait" ? (nx?.feedInfo ? `<div class="day-feed">Tu attends ${feedText(nx.feedInfo)}${nx.label ? ` <span class="muted">(${esc(dayLab(nx.label))})</span>` : ""}</div>` : "Ton set précédent est fini ; l'adversaire du suivant n'est pas encore connu.") : "Ta run apparaîtra quand les seeds seront publiées."}</div>`}
     <div class="btns" style="margin-top:8px">${scoutB}<button class="btn" data-act="bracket" data-eid="${esc(ev.eid)}" data-title="${esc(ev.name)}">🏆 Bracket</button></div></div>
     ${o?.pid ? stageBlock(D.scout[o.pid]?.chars?.[0]?.k || "") : ""}`;
 }
@@ -951,6 +976,30 @@ function dayScoutLine(x, st) {
   return c ? `${(c.chars || []).slice(0, 2).map((k) => ci(k.k, "xs")).join("")} <b>${esc(c.chars?.[0]?.k || "?")}</b> · ${c.w}–${c.l} récemment${best ? ` · ${ordinal(best.place)} à ${esc(best.name)}` : ""} · toi : ${h2h ? wl(h2h.w, h2h.l) : "jamais joué"}`
     : /^\d+$/.test(x.pid || "") ? '<span class="muted">scouting en préparation…</span>' : `<span class="muted">pas de fiche start.gg${h2h ? " · toi : " + wl(h2h.w, h2h.l) : ""}</span>`;
 }
+/* 🏆 v57 : le bilan de la run, dès qu'elle est finie (le bilan complet est dans le Hub après sa synchro) */
+function dayBilan(ev, r) {
+  const done = r.sets.filter((x) => x.res === "w" || x.res === "l"), W = done.filter((x) => x.res === "w").length, L = done.length - W;
+  let gw = 0, gl = 0; for (const x of done) { const m = /^(-?\d+)-(-?\d+)$/.exec(x.score || ""); if (m && +m[1] >= 0 && +m[2] >= 0) { gw += +m[1]; gl += +m[2]; } }
+  const my = ev.me?.seed, uf = (x) => my && x.seed ? pIdx(my) - pIdx(x.seed) : 0;
+  const ex = done.filter((x) => x.res === "w" && uf(x) > 0), cp = done.filter((x) => x.res === "l" && uf(x) < 0), out = done.filter((x) => x.res === "l").slice(-1)[0];
+  return `<div class="card day-bilan"><h3>🏆 Ton bilan</h3>
+    <div class="kpis"><div class="kpi"><b>${W}–${L}</b><span>sets</span></div><div class="kpi"><b>${gw}–${gl}</b><span>games</span></div><div class="kpi"><b>${ex.length}</b><span>exploit${ex.length > 1 ? "s" : ""}</span></div></div>
+    ${ex.length ? `<div class="small">🔥 Exploit${ex.length > 1 ? "s" : ""} : ${ex.map((x) => `<b>${esc(x.name)}</b> (seed ${x.seed})`).join(", ")}</div>` : ""}
+    ${cp.length ? `<div class="small">⚠ Contre-perf : ${cp.map((x) => `<b>${esc(x.name)}</b> (seed ${x.seed})`).join(", ")}</div>` : ""}
+    ${out ? `<div class="small">🚪 Sorti par <b>${esc(out.name)}</b> · ${esc(dayLab(out.label))} · ${esc(out.score)}</div>` : r.state === "COMPLETED" ? '<div class="small">🏆 Pas une défaite : bravo !</div>' : ""}
+    <label style="margin-top:8px">📝 Ce que je retiens</label><textarea id="tnote" placeholder="Ce qui a marché, ce qui n'a pas marché, à travailler…">${esc(C.get("tour_notes", ev.eid) || "")}</textarea>
+    <button class="btn" data-act="save-tnote" data-eid="${esc(ev.eid)}" style="width:100%;margin-top:6px">Enregistrer</button>
+    <div class="muted small" style="margin-top:6px">Le bilan complet (forme, persos, édition précédente) est dans le Hub après sa synchro.</div></div>`;
+}
+/* 🔆 v57 : garder l'écran allumé pendant le tournoi (les alertes n'arrivent que si l'appli est ouverte) */
+let WAKE = null;
+const wakePref = () => localStorage.getItem("sigo.wake") === "1";
+async function wakeSync() {
+  const want = wakePref() && !document.hidden && liveTournaments().length && "wakeLock" in navigator;
+  if (want && !WAKE) { try { WAKE = await navigator.wakeLock.request("screen"); WAKE.addEventListener?.("release", () => { WAKE = null; }); } catch (_) { WAKE = null; } }
+  else if (!want && WAKE) { try { await WAKE.release(); } catch (_) {} WAKE = null; }
+}
+document.addEventListener("visibilitychange", wakeSync);
 let DAY = null;
 const DAYDRAW = () => DAY && sheetDay(DAY, true);
 function sheetDay(tid, redraw) {
@@ -958,18 +1007,21 @@ function sheetDay(tid, redraw) {
   if (!redraw && CUR && CUR !== DAYDRAW) BACK = CUR;
   DAY = tid; CUR = DAYDRAW;
   const st = stats(allSets()), started = (u.start || 0) * 1000 <= Date.now(), keep = $("#sheet").scrollTop;
+  const tn = redraw && $("#tnote"), tnV = tn ? tn.value : null, tnF = tn && document.activeElement === tn;   // (la note en cours de saisie survit aux relectures)
   const evs = u.events.filter((ev) => ev.me);
-  sheet(`<div class="day-top"><div class="small tmode-h">🔥 JOUR J · ${started ? "en cours · actualisé chaque minute" : esc(countdown(u.start))}</div><h2 style="margin:2px 0 0">${esc(u.name)}</h2>
+  sheet(`<div class="day-top"><div class="small tmode-h">🔥 JOUR J · ${started ? `en cours · actualisé ${runHot() ? "toutes les 20 s" : "chaque minute"}` : esc(countdown(u.start))}${"wakeLock" in navigator ? ` <button class="chip wake ${wakePref() ? "on" : ""}" data-act="wake" title="Empêche le téléphone de se mettre en veille pendant le tournoi : les alertes arrivent tant que l'appli est ouverte">🔆 ${wakePref() ? "écran allumé" : "garder l'écran allumé"}</button>` : ""}</div><h2 style="margin:2px 0 0">${esc(u.name)}</h2>
       <div class="muted small">${esc(fmtDay(u.start))}${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}</div></div>
     ${evs.map((ev) => { const r = (D.live || {})[ev.eid], path = bracketPath(ev), ops = dayOpps(ev, r, path);
       return `${u.events.length > 1 ? `<h3>${esc(ev.name)}${ev.me?.seed ? ` · <span class="chip">ta seed ${ev.me.seed}</span>` : ""}</h3>` : ""}
         ${dayHero(ev, r, path, st)}
+        ${r && (r.out || r.state === "COMPLETED") ? dayBilan(ev, r) : ""}
         ${ops.length ? `<div class="card"><h3>👀 Adversaires probables</h3>${ops.map((x) => `<div class="row day-o" ${/^\d+$/.test(x.pid || "") ? `data-scout="${esc(x.pid)}" data-name="${esc(x.name)}"` : x.pid ? `data-opp="${esc(x.pid)}"` : ""}>${x.pid ? av(x.pid, x.name, "sm") : ""}
           <div class="grow"><div><b>${esc(x.name)}</b>${x.seed ? ` <span class="muted small">seed ${x.seed}</span>` : ""} <span class="chip">${esc(x.why)}</span></div><div class="small">${dayScoutLine(x, st)}</div></div>›</div>`).join("")}</div>` : ""}
         <div class="card"><h3>🏁 Ma run</h3>${r ? liveHTML(r, st) : path ? path.map((x) => x.bye ? "" : runRow({ label: x.label, name: x.e?.tag || x.e?.name, pid: x.e?.pid, seed: x.seed, fav: x.fav, res: "next" }, st)).join("") : '<div class="muted small">Seeds pas encore publiées.</div>'}</div>`; }).join("") || '<div class="card muted">Tu n\'es inscrit à aucune épreuve de ce tournoi.</div>'}
     <div class="btns">${closeBtn()}</div>`);
   if (redraw) $("#sheet").scrollTop = keep;
-  if (!redraw) dayFetch(u, evs, started);
+  if (tnV != null && $("#tnote")) { $("#tnote").value = tnV; if (tnF) $("#tnote").focus(); }
+  if (!redraw) { dayFetch(u, evs, started); wakeSync(); }
 }
 async function dayFetch(u, evs, started) {
   if (started) { await loadLive(u); if (CUR === DAYDRAW && DAY === u.tid) sheetDay(u.tid, true); }
@@ -1119,6 +1171,8 @@ document.addEventListener("click", async (e) => {
   if (act === "settings") return sheetSettings();
   if (act === "rescout") return sheetScout(el.dataset.pid, el.dataset.name, true);
   if (act === "save-opp") { C.set("opp_notes", el.dataset.pid, $("#opp-note").value.trim()); toast("📝 Note enregistrée."); if (BACK) { const b = BACK; BACK = null; return b(); } return closeSheet(); }
+  if (act === "save-tnote") { C.set("tour_notes", el.dataset.eid, $("#tnote").value.trim()); return toast("📝 Enregistré."); }
+  if (act === "wake") { localStorage.setItem("sigo.wake", wakePref() ? "0" : "1"); await wakeSync(); toast(wakePref() ? "🔆 L'écran reste allumé pendant le tournoi." : "Écran : veille normale."); return CUR === DAYDRAW ? sheetDay(DAY, true) : render(); }
   if (act === "save-mu") { C.set("matchups", el.dataset.k, $("#mu-text").value.trim()); toast("📒 Fiche enregistrée."); return closeSheet(); }
   if (act === "mu-new") { const k = prompt("Fiche matchup : quel personnage ?"); if (k && k.trim()) sheetMu(k.trim()); return; }
   if (act === "mark-add") { $("#marks").insertAdjacentHTML("beforeend", markRow()); $("#marks .mark:last-child .mk-t").focus(); return; }
