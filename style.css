@@ -112,3 +112,9 @@ a { color: var(--accent); }
 @keyframes bkfresh { 0% { box-shadow: 0 0 0 3px #e8a33d; } 100% { box-shadow: 0 0 0 0 transparent; } }
 .bk-set.live { overflow: visible; }
 .bk-set.live .bk-p:first-of-type .bk-seed { border-top-left-radius: 7px; } .bk-set.live .bk-p:last-child .bk-seed { border-bottom-left-radius: 7px; }
+
+/* 🌳 v46 : le bracket placé en arbre (chaque set en face de ceux qui le nourrissent) */
+.bk-sets.bk-abs { position: relative; display: block; flex: none; }
+.bk-slot { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; justify-content: center; }
+.bk-lines { position: absolute; top: 0; overflow: visible; pointer-events: none; }
+.bk-lines path { fill: none; stroke: var(--line); stroke-width: 1.5; }
