@@ -422,6 +422,7 @@ async function chDailySync() {
   finally { CHM.dBusy = false; }
   if (D.space === "ch" && $("#sheet-back").hidden && ["chgames", "chstats"].includes(D.tab)) render();
 }
+const chDNote = (id) => String(E.get("ch:cfg")?.dnotes?.[id] || "");      // (📝 v88 : la note écrite dans le Hub, synchronisée)
 function chLeftM(ts) {
   const s = ts - Date.now() / 1000; if (s <= 0) return "temps écoulé";
   const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
@@ -436,7 +437,7 @@ function chDailyBlock() {
       return `<div class="row chd-row ${g.mine ? "mine" : ""} ${urgent ? "urgent" : ""}" data-chd="${esc(g.id)}"><div class="chd-b">${chBoard(g.fen, { flip: g.color === "b", mini: true })}</div>
         <div class="grow"><div><b>${esc(g.opp.name)}</b> <span class="muted small">${g.opp.rating || ""}</span> <span class="ch-dot ${g.color}"></span></div>
         <div class="small ${g.mine ? "chd-turn" : "muted"}">${g.mine ? `♟ À toi${g.move_by ? " · reste " + chLeftM(g.move_by) : ""}` : `⏳ Il réfléchit${g.last ? " · " + chAgoM(g.last) : ""}`}</div>
-        <div class="muted small">${g.opening ? esc(g.opening) + " · " : ""}coup ${Math.floor(g.moves.length / 2) + 1}${g.draw ? " · 🤝 nulle proposée" : ""}</div></div>›</div>`; }).join("")}</div>`;
+        <div class="muted small">${g.opening ? esc(g.opening) + " · " : ""}coup ${Math.floor(g.moves.length / 2) + 1}${g.draw ? " · 🤝 nulle proposée" : ""}</div>${chDNote(g.id) ? `<div class="small chd-note">📝 ${esc(chDNote(g.id).split("\n")[0].slice(0, 60))}</div>` : ""}</div>›</div>`; }).join("")}</div>`;
 }
 function sheetChDaily(id) {
   const g = (CHM.daily || []).find((x) => x.id === id); if (!g) return;
@@ -444,6 +445,7 @@ function sheetChDaily(id) {
     <div class="muted small">Tu as les ${g.color === "w" ? "blancs" : "noirs"}${g.opening ? " · " + esc(g.opening) : ""}</div>
     <div class="${g.mine ? "chd-turn" : "muted"}" style="margin:6px 0">${g.mine ? `♟ À toi de jouer${g.move_by ? " · reste " + chLeftM(g.move_by) : ""}` : `⏳ À lui de jouer${g.last ? " · dernier coup " + chAgoM(g.last) : ""}`}</div>
     ${chBoard(g.fen, { flip: g.color === "b" })}
+    ${chDNote(g.id) ? `<div class="card small chd-notec">📝 ${esc(chDNote(g.id)).replace(/\n/g, "<br>")}<div class="muted small">ta note, écrite dans le Hub</div></div>` : ""}
     <div class="small chd-moves">${g.moves.map((m, i) => (i % 2 ? "" : `<b>${i / 2 + 1}.</b> `) + esc(m)).join(" ") || '<span class="muted">Pas encore de coup.</span>'}</div>
     <div class="btns"><a class="btn accent" href="${esc(g.url)}" target="_blank" rel="noopener">${g.mine ? "Jouer" : "Ouvrir"} sur Chess.com ↗</a>${closeBtn()}</div>`);
 }
