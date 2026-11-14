@@ -12,7 +12,7 @@ SPACE_TABS.ch = [["chlearn", "📚", "Apprendre"], ["chgames", "♟", "Parties"]
 delete TABS.chome;
 const CCOM = () => localStorage.getItem("sigo.dev.cc") || "https://api.chess.com/pub";
 const CH_DRAWS = new Set(["agreed", "repetition", "stalemate", "insufficient", "50move", "timevsinsufficient"]);
-const CHM = { games: null, stats: null, busy: false, err: "", gid: "", ply: 0, flip: null, tc: "all", n: 60, lib: "all", q: "", les: null, oq: "" };
+const CHM = { an: {}, rev: null, games: null, stats: null, busy: false, err: "", gid: "", ply: 0, flip: null, tc: "all", n: 60, lib: "all", q: "", les: null, oq: "" };
 const chUser = () => String(D.cfg.chUser || E.get("ch:cfg")?.user || "").toLowerCase();
 const chLearn = () => E.get("ch:learn") || { pins: [], prog: {} };
 const TCN = { rapid: "Rapide", blitz: "Blitz", bullet: "Bullet", daily: "Par jour" };
@@ -58,7 +58,7 @@ async function chLoad() {
   const all = [];
   try {
     const c = await chCache();
-    for (const k of await c.keys()) { const p = new URL(k.url).pathname; const d = await (await c.match(k)).json(); if (p.startsWith("/m/")) all.push(...(d.games || [])); else if (p === "/stats") CHM.stats = d; }
+    for (const k of await c.keys()) { const p = new URL(k.url).pathname; const d = await (await c.match(k)).json(); if (p.startsWith("/m/")) all.push(...(d.games || [])); else if (p === "/stats") CHM.stats = d; else if (p === "/an") CHM.an = d; }
   } catch (_) {}
   const seen = new Set(); CHM.games = all.sort((a, b) => b.end - a.end).filter((g) => !seen.has(g.id) && seen.add(g.id));
   return CHM.games;
@@ -68,7 +68,7 @@ async function chSync(full) {
   CHM.busy = true; CHM.err = "";
   try {
     const c = await chCache(), meta = await (await c.match("/meta"))?.json().catch(() => null);
-    if (meta && meta.user !== u) { for (const k of await c.keys()) await c.delete(k); CHM.games = null; }
+    if (meta && meta.user !== u) { for (const k of await c.keys()) if (new URL(k.url).pathname !== "/an") await c.delete(k); CHM.games = null; }
     CHM.stats = await chGet(`/player/${u}/stats`); await c.put("/stats", new Response(JSON.stringify(CHM.stats)));
     const arch = ((await chGet(`/player/${u}/games/archives`)).archives || []).map((a) => (a.match(/\/games\/(\d{4})\/(\d{2})$/) || []).slice(1).join("-")).filter(Boolean);
     const now = new Date(), cur = now.toISOString().slice(0, 7), prev = new Date(now.getFullYear(), now.getMonth() - 1, 15).toISOString().slice(0, 7);
@@ -164,7 +164,7 @@ function viewChGames() {
   const gs = chFiltered(), tcs = [...new Set((CHM.games || []).map((g) => g.tclass))];
   return `${chHeadState()}<div class="chips">${[["all", "Toutes"], ...tcs.map((t) => [t, TCN[t] || t])].map(([k, n]) => `<button class="chip-b ${CHM.tc === k ? "on" : ""}" data-chtc="${k}">${n}</button>`).join("")}</div>
     <div class="card">${gs.slice(0, CHM.n).map((g) => `<div class="row" data-chg="${esc(g.id)}">${chRes(g.res)}<div class="grow"><div><b>${esc(g.opp.name)}</b> <span class="muted small">${g.opp.rating || ""}</span> <span class="ch-dot ${g.color}"></span></div>
-      <div class="muted small">${esc(g.opening)} · ${esc(TCN[g.tclass] || g.tclass)} · ${fmtDate(g.end)}</div></div><div style="text-align:right"><b>${g.rating || ""}</b>${g.acc ? `<div class="muted small">${Math.round(g.acc)} %</div>` : ""}</div></div>`).join("") || '<div class="empty small">Aucune partie.</div>'}</div>
+      <div class="muted small">${esc(g.opening)} · ${esc(TCN[g.tclass] || g.tclass)} · ${fmtDate(g.end)}</div></div><div style="text-align:right"><b>${g.rating || ""}</b>${chAn(g) ? `<div class="small">🔍 ${chAn(g).blunders ? `<span class="l">${chAn(g).blunders}??</span>` : "✓"}</div>` : g.acc ? `<div class="muted small">${Math.round(g.acc)} %</div>` : ""}</div></div>`).join("") || '<div class="empty small">Aucune partie.</div>'}</div>
     ${gs.length > CHM.n ? `<button class="btn" data-chact="more" style="width:100%">Plus de parties (${gs.length - CHM.n})</button>` : ""}`;
 }
 function viewChGame() {
@@ -242,6 +242,7 @@ function chTapSquare(sq) {
 document.addEventListener("click", (e) => {
   const t = e.target;
   const sq = t.closest("#chd-b [data-sq]"); if (sq && CHM.les?.tab === "drill") return chTapSquare(sq.dataset.sq);
+  const rq = t.closest("#chr-b [data-sq]"); if (rq && CHM.rev) return chRevTap(rq.dataset.sq);
   const les = t.closest("[data-chles]"); if (les) { chOpenLesson(les.dataset.chles); window.scrollTo(0, 0); return render(); }
   const tab = t.closest("[data-chtab]"); if (tab) { CHM.les.tab = tab.dataset.chtab; if (tab.dataset.chtab === "drill") { CHM.les.drill = { i: 0, err: 0, sel: null, hint: null, miss: 0 }; chDrillAuto(); } return render(); }
   const key = t.closest("[data-chkey]"); if (key) { Object.assign(CHM.les, { tab: "line", key: "main", sans: clSans(CH_LIB.find((x) => x.id === CHM.les.id).line), ply: +key.dataset.chkey }); return render(); }
@@ -266,12 +267,130 @@ document.addEventListener("click", (e) => {
   const a = el.dataset.chact;
   if (a === "user") { const u = $("#ch-user").value.trim().replace(/^.*\//, "").toLowerCase(); if (!/^[a-z0-9_-]{3,25}$/.test(u)) return toast("Ton pseudo Chess.com ?", true); D.cfg.chUser = u; save(); CHM.games = null; render(); return chSync(); }
   if (a === "les-back") { CHM.les = null; return render(); }
+  if (a === "rev") { chRevStart(); window.scrollTo(0, 0); return render(); }
+  if (a === "rev-end") { CHM.rev = null; return render(); }
+  if (a === "rev-next") { const R = CHM.rev; R.i++; R.state = "ask"; R.sel = null; R.played = null; return render(); }
+  if (a === "rev-show") { const R = CHM.rev, c = R.q[R.i]; R.state = "ko"; chRepResult(c, false); return render(); }
   if (a === "games-back") { CHM.gid = ""; return render(); }
   if (a === "more") { CHM.n += 60; return render(); }
   if (a === "pin") { const lr = chLearn(), id = CHM.les.id, pins = (lr.pins || []).filter((x) => x !== id); if (!(lr.pins || []).includes(id)) pins.push(id); E.set("ch:learn", { ...lr, pins: pins.slice(-12), prog: lr.prog || {} }); return render(); }
   if (a === "drill-again") { CHM.les.drill = { i: 0, err: 0, sel: null, hint: null, miss: 0 }; chDrillAuto(); return render(); }
   if (a === "drill-hint") { const L = CHM.les; L.drill.hint = chFenAt(L.dsans, L.drill.i + 1).last?.from || null; return render(); }
 });
+
+
+/* ============================================================ v79 : 🔍 les analyses Stockfish du Hub, 🎓 la révision du répertoire */
+const chWp = (cp) => 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1);
+/** (appelé par la synchro des espaces) les analyses faites sur tes PC : gardées dans le cache, en lecture seule */
+async function chAnStore(an) {
+  if (same(an, CHM.an)) return;
+  CHM.an = an; try { await (await chCache()).put("/an", new Response(JSON.stringify(an))); } catch (_) {}
+}
+const chAn = (g) => CHM.an?.[g.id];
+function chGraph(ev, ply, cls, color, firstColor) {
+  const W = 600, H = 110, n = ev.length, x = (i) => (i / Math.max(1, n - 1)) * W, y = (cp) => H - (chWp(cp) / 100) * H;
+  const d = ev.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const kc = { "??": "b", "?": "m", "?!": "i" };
+  const dots = (cls || []).map((k, i) => kc[k] ? { k, i: i + 1, mine: ((i % 2 === 0) ? firstColor : firstColor === "w" ? "b" : "w") === color } : null).filter((o) => o && o.k !== "?!");
+  return `<div class="ch-gwrap"><svg class="ch-graph" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${d}L${W},${H}L0,${H}Z" class="wa"/><path d="${d}" class="ln"/>
+      <line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" class="mid"/><line x1="${x(ply)}" x2="${x(ply)}" y1="0" y2="${H}" class="cur"/></svg>
+    ${dots.map((o) => `<button class="ch-gdot ${kc[o.k]} ${o.mine ? "me" : ""}" data-chply="game:${o.i}" style="left:${(100 * o.i / Math.max(1, n - 1)).toFixed(2)}%;top:${(100 * y(ev[o.i]) / H).toFixed(2)}%"></button>`).join("")}</div>`;
+}
+/** la partie avec son analyse : barre d'évaluation, courbe, ?? / ? sur la pièce, la flèche du meilleur coup */
+function chGameAnalysis(g, P) {
+  const a = chAn(g); if (!a?.evals?.length) return null;
+  const ply = CHM.ply, k = a.cls?.[ply - 1], nk = a.cls?.[ply], bsan = (nk === "??" || nk === "?") ? a.best?.[ply] : null;
+  let arrow = null; if (bsan) { try { const c = new Chess(P.fen); const m = c.move(bsan); arrow = { from: m.from, to: m.to, kind: "best" }; } catch (_) {} }
+  const first = (g.fen0 || "").split(" ")[1] === "b" ? "b" : "w", whoNext = ((ply % 2 === 0) ? first : first === "w" ? "b" : "w") === g.color ? "tu as joué" : "il a joué";
+  return { board: `<div class="ch-bw">${chEvalBar(a.evals[ply] ?? 0, CHM.flip)}${chBoard(P.fen, { flip: CHM.flip, last: P.last, id: "chg-b", arrows: arrow ? [arrow] : null, badge: k && P.last ? { sq: P.last.to, k } : null })}</div>`,
+    graph: chGraph(a.evals, ply, a.cls, g.color, first),
+    sum: `<div class="ch-ansum"><span class="b">?? ${a.blunders || 0}</span><span class="m">? ${a.mistakes || 0}</span><span class="i">?! ${a.inacc || 0}</span>${a.acc != null ? `<span>🎯 ${a.acc} %</span>` : ""}${a.swing ? "<span>⚠ gagnante ratée</span>" : ""}</div>`,
+    tip: bsan ? `<div class="card ch-tip small">Au coup suivant, ${whoNext} <b>${esc(g.moves[ply])}</b> ${esc(nk)} — Stockfish préférait <b>${esc(bsan)}</b> (flèche verte).</div>` : "" };
+}
+
+/* ------------------------------------------------------------ 🎓 le répertoire (comme le Hub : tes 8 premiers coups) */
+const REP_PLIES = 16, REP_DAYS = [0, 1, 3, 7, 21, 60];
+function chRepCards() {
+  const nodes = new Map();
+  for (const g of CHM.games || []) {
+    if (g.fen0) continue;
+    const mv = g.moves, a = chAn(g) || {}, me = g.color, cls = a.cls || [], best = a.best || {};
+    for (let i = me === "w" ? 0 : 1; i < Math.min(mv.length, REP_PLIES); i += 2) {
+      const id = `${me}:${mv.slice(0, i).join(" ")}`;
+      const n = nodes.get(id) || { id, c: me, line: mv.slice(0, i), n: 0, moves: {}, best: "", last: 0 }; nodes.set(id, n);
+      n.n++; n.last = Math.max(n.last, g.end || 0);
+      const m = n.moves[mv[i]] ||= { san: mv[i], n: 0, w: 0, d: 0, l: 0, err: 0 };
+      m.n++; m[{ W: "w", D: "d" }[g.res] || "l"]++;
+      if (cls[i] === "??" || cls[i] === "?") { m.err++; if (best[i]) n.best = best[i]; }
+    }
+  }
+  const now = Date.now() / 1000, out = [];
+  for (const n of nodes.values()) {
+    const moves = Object.values(n.moves).sort((a, b) => b.n - a.n || a.san.localeCompare(b.san));
+    if (n.n < 2 && !n.best) continue;
+    const good = moves.filter((m) => !m.err), r = E.get("ch:rep:" + n.id) || {};
+    out.push({ ...n, moves, exp: n.best || (good[0] || moves[0]).san, src: n.best ? "stockfish" : "habitude", weak: moves.reduce((a, m) => a + m.err, 0),
+      box: +r.box || 0, due: +r.due || 0, ok: +r.ok || 0, ko: +r.ko || 0, isDue: (+r.due || 0) <= now });
+  }
+  return out.sort((a, b) => b.weak - a.weak || b.n - a.n || a.line.length - b.line.length).slice(0, 240);
+}
+function chRepResult(card, ok) {
+  const r = E.get("ch:rep:" + card.id) || { box: 0, ok: 0, ko: 0 };
+  if (ok) { r.box = Math.min(REP_DAYS.length - 1, (+r.box || 0) + 1); r.ok = (+r.ok || 0) + 1; r.due = Date.now() / 1000 + REP_DAYS[r.box] * 86400; }
+  else { r.box = 0; r.ko = (+r.ko || 0) + 1; r.due = Date.now() / 1000 + 600; }
+  E.set("ch:rep:" + card.id, r);
+}
+function chRepBanner() {
+  if (!chUser() || !CHM.games) return "";
+  const cards = chRepCards(), due = cards.filter((c) => c.isDue);
+  if (!cards.length) return "";
+  return `<div class="card ch-rep-b" data-chact="rev"><div class="row" style="border:none;padding:0"><span class="ch-rep-i">🎓</span><div class="grow"><div><b>Ton répertoire</b></div>
+    <div class="muted small">${due.length ? `<b class="accent">${due.length}</b> position(s) à revoir aujourd'hui` : "À jour : rien à revoir aujourd'hui"} · ${cards.length} positions tirées de tes parties</div></div>${due.length ? '<span class="btn accent">▶ Réviser</span>' : "›"}</div></div>`;
+}
+function chRevStart() {
+  const cards = chRepCards(), due = cards.filter((c) => c.isDue);
+  CHM.rev = { q: (due.length ? due : cards.slice().sort((a, b) => a.due - b.due)).slice(0, 15), i: 0, okN: 0, sel: null, state: "ask", played: null };
+}
+function viewChRev() {
+  const R = CHM.rev, c = R.q[R.i];
+  if (!c) return `<button class="btn wback" data-chact="rev-end">← Apprendre</button><div class="card setup"><h2>🎓 Séance terminée</h2><p><b>${R.okN}</b> / ${R.q.length} sans faute.</p>
+    <p class="muted small">Les positions réussies reviendront dans quelques jours (1, 3, 7, 21 puis 60 jours) ; les ratées reviennent dans 10 minutes.</p><button class="btn accent" data-chact="rev-end" style="width:100%">Terminer</button></div>`;
+  const P = chFenAt(c.line, c.line.length), tg = R.sel && R.state === "ask" ? P.c.moves({ square: R.sel, verbose: true }).map((m) => m.to) : [];
+  let arrows = null, ex = null;
+  if (R.state !== "ask") { try { const x = new Chess(P.fen); const m = x.move(c.exp); ex = m; arrows = [{ from: m.from, to: m.to, kind: "best" }]; if (R.played && R.state === "ko") arrows.push({ from: R.played.from, to: R.played.to, kind: "bad" }); } catch (_) {} }
+  const tot = c.moves.reduce((a, m) => a + m.n, 0);
+  return `<div class="lu-h"><button class="btn wback" data-chact="rev-end" style="margin:0">✕</button><div class="muted small">${R.i + 1} / ${R.q.length}</div></div>
+    <div class="bar"><span style="width:${(100 * R.i) / R.q.length}%"></span></div>
+    <div class="card small">${c.line.length ? `Après <b>${esc(c.line.map((m, i) => (i % 2 === 0 ? `${i / 2 + 1}. ` : "") + m).join(" "))}</b>` : "Premier coup"}, avec les ${c.c === "w" ? "blancs" : "noirs"} : <b>ton coup ?</b>
+      <div class="muted">${c.n} parties ici${c.weak ? ` · ⚠ ${c.weak} faute(s) déjà faite(s)` : ""}</div></div>
+    ${chBoard(P.fen, { flip: c.c === "b", last: P.last, sel: R.sel, targets: tg, arrows, id: "chr-b" })}
+    ${R.state === "ask" ? `<div class="btns"><button class="btn" data-chact="rev-show">👁 Voir la réponse</button></div>`
+      : `<div class="card ${R.state === "ok" ? "ch-ok" : "ch-ko"}"><b>${R.state === "ok" ? "✓ Bien joué" : "✗ Pas tout à fait"}</b> — ${c.src === "stockfish" ? "Stockfish conseille" : "tu joues d'habitude"} <b>${esc(c.exp)}</b>.
+        <div class="small muted" style="margin-top:4px">Tes coups ici : ${c.moves.slice(0, 4).map((m) => `${esc(m.san)} ${Math.round((100 * m.n) / tot)} % (${m.w}-${m.d}-${m.l})${m.err ? " ⚠" : ""}`).join(" · ")}</div></div>
+        <button class="btn accent" data-chact="rev-next" style="width:100%">Suivante ›</button>`}`;
+}
+function chRevTap(sq) {
+  const R = CHM.rev, c = R.q[R.i]; if (!c || R.state !== "ask") return;
+  const P = chFenAt(c.line, c.line.length), pc = P.c.get(sq);
+  if (R.sel && R.sel !== sq) {
+    let mv = null; try { mv = P.c.move({ from: R.sel, to: sq, promotion: "q" }); } catch (_) {}
+    if (mv) { const ok = mv.san.replace(/[+#]/g, "") === c.exp.replace(/[+#]/g, ""); R.state = ok ? "ok" : "ko"; R.played = mv; R.sel = null; if (ok) R.okN++; chRepResult(c, ok); navigator.vibrate?.(ok ? 15 : [30, 40, 30]); return render(); }
+  }
+  R.sel = pc && pc.color === c.c ? sq : null; render();
+}
+const viewChLearn0 = viewChLearn;
+viewChLearn = function () { if (CHM.rev) return viewChRev(); if (!CHM.les && chUser() && !CHM.games) chNeed(); return (CHM.les ? "" : chRepBanner()) + viewChLearn0(); };
+TABS.chlearn = viewChLearn;
+const viewChGame0 = viewChGame;
+viewChGame = function () {
+  const g = (CHM.games || []).find((x) => x.id === CHM.gid); if (!g) return viewChGame0();
+  if (CHM.flip == null) CHM.flip = g.color === "b";
+  const P = chFenAt(g.moves, CHM.ply, g.fen0), A = chGameAnalysis(g, P);
+  if (!A) return viewChGame0().replace("</a>", "</a>") + '<div class="muted small" style="text-align:center;margin-top:8px">Pas encore analysée : dans le Hub, ♟ → la partie → 🔍 Analyser (ou l\'analyse en lot) ; elle arrive ici à la synchro.</div>';
+  const html = viewChGame0(), i = html.indexOf('<div class="ch-board'), j = html.indexOf(chNav("game"));
+  const ml = chMoveList(g.moves, CHM.ply, "game").replace(/<button class="([^"]*)" data-chply="game:(\d+)">/g, (m, cls, n) => { const k = chAn(g).cls?.[n - 1]; return `<button class="${cls} ${k === "??" ? "kb" : k === "?" ? "km" : k === "?!" ? "ki" : ""}" data-chply="game:${n}">`; });
+  return html.slice(0, i) + A.sum + A.board + html.slice(j).replace(chMoveList(g.moves, CHM.ply, "game"), A.tip + A.graph + ml);
+};
 
 /* (le premier affichage d'app.js a eu lieu avant les espaces : on réaffiche avec tout chargé) */
 render();
