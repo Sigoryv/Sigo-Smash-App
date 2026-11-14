@@ -8,6 +8,8 @@
    - Les fiches OpenHammer de tes factions : wh-units-N.enc.json, envoyées par le Hub (lisibles sans réseau).
    ===================================================================== */
 
+/** (v83) un squelette de chargement (au lieu de « … ») */
+const uxSkel = (n = 4) => `<div class="skel">${Array.from({ length: n }, (_, i) => `<div class="skel-r"><i></i><div><b style="width:${55 + ((i * 17) % 35)}%"></b><b style="width:${30 + ((i * 23) % 40)}%"></b></div></div>`).join("")}</div>`;
 const SPACES = [["smash", "🎮", "Smash"], ["wh", "⚔", "Warhammer"], ["ch", "♟", "Échecs"]];
 const SPACE_TABS = {
   smash: [["home", "🏠", "Accueil"], ["tours", "🏆", "Tournois"], ["players", "🆚", "Joueurs"], ["mu", "🎭", "Line Up"], ["carnet", "📓", "Carnet"], ["infos", "🔎", "Infos"]],
@@ -26,7 +28,7 @@ function paintChrome() {
   if (!tabs.some((t) => t[0] === D.tab)) D.tab = D.tabs[D.space] && tabs.some((t) => t[0] === D.tabs[D.space]) ? D.tabs[D.space] : tabs[0][0];
   const html = tabs.map(([id, ico, n]) => `<button data-tab="${id}"><span>${ico}</span>${esc(n)}</button>`).join("");
   const nav = $("#tabs"); if (nav.dataset.space !== D.space) { nav.innerHTML = html; nav.dataset.space = D.space; nav.style.gridTemplateColumns = `repeat(${tabs.length}, 1fr)`; }
-  $("#find-char").hidden = D.space !== "smash";
+  $("#find-char").hidden = false;                       // (v83 : 🔎 cherche dans tous les espaces)
   document.documentElement.dataset.space = D.space;
 }
 const renderView0 = renderView;
