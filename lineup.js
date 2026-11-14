@@ -195,9 +195,9 @@ function viewMuChart() {
   if (!me) return `<div class="card">${sel}<div class="empty">Choisis un perso.</div></div>`;
   const icon = (s) => { const x = luRec(G.filter((g) => g.me === me && g.opp === s)); return `<button class="mc" data-lact="mc" data-slug="${s}">${luArt(s)}${x.n ? `<i class="${x.pct >= 50 ? "w" : "l"}">${x.w}-${x.l}</i>` : ""}</button>`; };
   const others = LU_ROSTER.map((r) => r[0]).filter((s) => s !== me);
-  return `<div class="card">${sel}<div class="muted small" style="margin-top:6px">Touche un perso pour le noter.</div></div>
-    ${LU_TIERS.map(([t, n]) => { const l = others.filter((s) => luRate(me, s) === t); return `<div class="tier ${luCls(t)}"><div class="tier-h">${luSign(t)} <span class="small">${n}</span></div><div class="tier-l">${l.map(icon).join("") || '<span class="muted small">—</span>'}</div></div>`; }).join("")}
-    <details class="card"><summary class="small muted">Pas encore notés (${others.filter((s) => luRate(me, s) == null).length})</summary><div class="tier-l" style="margin-top:8px">${others.filter((s) => luRate(me, s) == null).map(icon).join("")}</div></details>`;
+  return `<div class="card">${sel}<div class="muted small" style="margin-top:6px">Touche un perso pour le noter, ou appuie longuement et glisse-le dans un rang.</div></div>
+    ${LU_TIERS.map(([t, n]) => { const l = others.filter((s) => luRate(me, s) === t); return `<div class="tier ${luCls(t)}" data-v="${t}"><div class="tier-h">${luSign(t)} <span class="small">${n}</span></div><div class="tier-l">${l.map(icon).join("") || '<span class="muted small">—</span>'}</div></div>`; }).join("")}
+    <details class="card mc-na" data-v="na" ${D.luMcOpen === false ? "" : "open"}><summary class="small muted">Pas encore notés (${others.filter((s) => luRate(me, s) == null).length})</summary><div class="tier-l" style="margin-top:8px">${others.filter((s) => luRate(me, s) == null).map(icon).join("")}</div></details>`;
 }
 function sheetRate(me, opp) {
   const v = luRate(me, opp), x = luRec(luGames().filter((g) => g.me === me && g.opp === opp));
@@ -322,3 +322,76 @@ document.addEventListener("input", (e) => {
 });
 document.addEventListener("keydown", (e) => { if (e.target.id === "inf-q" && e.key === "Enter") { const b = $("#inf-grid [data-slug]"); if (b) { e.target.blur(); b.click(); } } });
 if (D.tab === "mu" || D.tab === "infos") render();
+
+/* ============================================================ v68 : 🧮 glisser-déposer dans la MU chart (appui long), « pas encore notés » reste ouvert */
+document.addEventListener("toggle", (e) => { if (e.target.classList?.contains("mc-na")) { D.luMcOpen = e.target.open; save(); } }, true);
+const DRG = { t: null, el: null, ghost: null, slug: "", sx: 0, sy: 0, on: false, block: false, over: null };
+function drgGhost(x, y) { if (DRG.ghost) { DRG.ghost.style.left = x - 24 + "px"; DRG.ghost.style.top = y - 24 + "px"; } }
+function drgEnd() {
+  clearTimeout(DRG.t); DRG.ghost?.remove(); DRG.el?.classList.remove("dragging"); DRG.over?.classList.remove("over");
+  Object.assign(DRG, { t: null, el: null, ghost: null, on: false, over: null });
+}
+document.addEventListener("pointerdown", (e) => {
+  const b = e.target.closest(".mc[data-slug]"); if (!b || D.tab !== "mu" || (D.luSeg || "mine") !== "chart") return;
+  drgEnd(); Object.assign(DRG, { el: b, slug: b.dataset.slug, sx: e.clientX, sy: e.clientY });
+  DRG.t = setTimeout(() => {
+    DRG.on = true; navigator.vibrate?.(15);
+    const g = b.cloneNode(true); g.className = "mc mc-ghost"; g.removeAttribute("data-lact"); document.body.appendChild(g); DRG.ghost = g;
+    drgGhost(DRG.sx, DRG.sy); b.classList.add("dragging");
+  }, 260);
+});
+document.addEventListener("pointermove", (e) => {
+  if (!DRG.el) return;
+  if (!DRG.on) { if (Math.hypot(e.clientX - DRG.sx, e.clientY - DRG.sy) > 10) drgEnd(); return; }
+  drgGhost(e.clientX, e.clientY);
+  const t = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-v]");
+  if (t !== DRG.over) { DRG.over?.classList.remove("over"); DRG.over = t; t?.classList.add("over"); }
+});
+document.addEventListener("touchmove", (e) => { if (DRG.on) e.preventDefault(); }, { passive: false });
+document.addEventListener("pointerup", (e) => {
+  if (!DRG.el) return;
+  if (DRG.on) {
+    const t = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-v]"), slug = DRG.slug;
+    DRG.block = true; setTimeout(() => (DRG.block = false), 300);
+    drgEnd();
+    if (t && D.luMc) { const v = t.dataset.v; C.set("mu_rate", `${D.luMc}|${slug}`, v === "na" ? null : +v); render(); toast(`🧮 ${luN(slug)} : ${v === "na" ? "pas noté" : luSign(+v)}`); }
+    return;
+  }
+  drgEnd();
+});
+document.addEventListener("pointercancel", drgEnd);
+document.addEventListener("contextmenu", (e) => { if (e.target.closest(".mc")) e.preventDefault(); });
+window.addEventListener("click", (e) => { if (DRG.block) { e.stopPropagation(); e.preventDefault(); } }, true);
+
+/* ============================================================ v68 : 🤖 les analyses gardées (faites dans le Hub) */
+function mdLite(t) {
+  const lines = esc(String(t || "")).split("\n"), out = []; let ul = false;
+  for (let l of lines) {
+    l = l.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>");
+    const li = /^\s*(?:[-*]|\d+\.)\s+(.*)$/.exec(l), h = /^(#{1,4})\s+(.*)$/.exec(l);
+    if (li) { if (!ul) { out.push("<ul>"); ul = true; } out.push(`<li>${li[1]}</li>`); continue; }
+    if (ul) { out.push("</ul>"); ul = false; }
+    if (h) out.push(`<h4>${h[2]}</h4>`); else if (l.trim()) out.push(`<p>${l}</p>`);
+  }
+  if (ul) out.push("</ul>");
+  return out.join("");
+}
+const anaAll = () => C.section("analyses").map(([, v]) => v).filter(Boolean).sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+function anaItem(a) {
+  const kind = { me: "🙋 Moi", opp: "🆚 " + (a.name || "un joueur"), mu: "🎭 " + (a.name || "matchup") }[a.kind] || "🙋 Moi";
+  return `<details class="ana"><summary><span class="chip">${esc(kind)}</span> ${esc(a.q)} <span class="muted small">· ${fmtDate(a.ts)}</span></summary>
+    <div class="ana-b">${a.text ? mdLite(a.text) : `<div class="muted small">${a.status === "pending" ? "L'agent travaille encore : la réponse arrivera avec la synchro." : "Pas de réponse."}</div>`}</div></details>`;
+}
+function anaBlock(pid) {
+  const l = anaAll().filter((a) => a.kind === "opp" && String(a.pid) === String(pid));
+  return l.length ? `<div class="card"><h3>🤖 Mes analyses sur lui</h3>${l.map(anaItem).join("")}</div>` : "";
+}
+const _oppBlock = oppBlock;
+oppBlock = function (pid, name, o) { return anaBlock(pid) + _oppBlock(pid, name, o); };
+const _viewPlayers = viewPlayers;
+TABS.players = function () {
+  const l = anaAll();
+  return (l.length ? `<details class="card ana-all" ${D.anaOpen ? "open" : ""}><summary><b>🤖 Mes analyses</b> <span class="muted small">${l.length}</span></summary>${l.slice(0, 40).map(anaItem).join("")}</details>` : "") + _viewPlayers();
+};
+document.addEventListener("toggle", (e) => { if (e.target.classList?.contains("ana-all")) { D.anaOpen = e.target.open; save(); } }, true);
+if (D.tab === "players") render();
