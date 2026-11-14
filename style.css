@@ -13,7 +13,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 #status { margin: 8px 12px 0; padding: 8px 12px; border-radius: 10px; font-size: .86em; background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
 #status.err { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, var(--line)); }
 #view { padding: 12px 12px 20px; }
-#tabs { position: fixed; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(5, 1fr); background: var(--panel); border-top: 1px solid var(--line); padding-bottom: var(--safe-b); z-index: 5; }
+#tabs { position: fixed; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(6, 1fr); background: var(--panel); border-top: 1px solid var(--line); padding-bottom: var(--safe-b); z-index: 5; }
 #tabs button { border: none; background: none; color: var(--muted); padding: 7px 0 8px; font-size: .72em; display: flex; flex-direction: column; align-items: center; gap: 1px; min-height: 56px; }
 #tabs button span { font-size: 1.45em; line-height: 1.2; filter: grayscale(.6); }
 #tabs button.on { color: var(--text); font-weight: 600; } #tabs button.on span { filter: none; }
@@ -202,3 +202,8 @@ a { color: var(--accent); }
 .tl-c.sel .lu-a { outline: 3px solid var(--accent); }
 #top #find-char { font-size: 1.1em; }
 .tl-c[hidden] { display: none; }
+/* v67 : l'onglet 🔎 Infos */
+.inf-q { position: sticky; top: 52px; z-index: 3; background: var(--bg); padding: 2px 0 8px; }
+.lu-tile .fd { position: absolute; top: 4px; right: 6px; font-size: .75em; }
+.lu-tile { position: relative; }
+#tabs button { font-size: .68em; }
