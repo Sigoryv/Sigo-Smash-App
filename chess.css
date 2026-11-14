@@ -1,0 +1,28 @@
+/* ♟ l'échiquier : copie des règles de ui/style.css (v76 ; le test vérifie qu'elles restent identiques) */
+.ch-board { position: relative; display: grid; grid-template-columns: repeat(8, 1fr); width: 100%; max-width: 520px; aspect-ratio: 1; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,.3); user-select: none; flex: 1; }
+.ch-sq { position: relative; display: flex; align-items: center; justify-content: center; } .ch-sq.l { background: var(--chl, #eeddc0); } .ch-sq.d { background: var(--chd, #b4875f); }
+.ch-sq.last::before { content: ""; position: absolute; inset: 0; background: rgba(255, 214, 64, .42); }
+.ch-sq.sel::before { content: ""; position: absolute; inset: 0; background: rgba(80, 160, 255, .45); }
+.ch-sq.hintsq::before { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 4px #3f9b52; z-index: 2; pointer-events: none; }
+.ch-sq.tgt::after { content: ""; position: absolute; width: 28%; height: 28%; border-radius: 50%; background: rgba(20, 20, 20, .28); }
+.ch-sq.cap::after { content: ""; position: absolute; inset: 4%; border-radius: 50%; box-shadow: inset 0 0 0 5px rgba(20, 20, 20, .28); }
+.ch-arrow { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; } .ch-arrow line { stroke: rgba(63, 155, 82, .85); stroke-width: .16; stroke-linecap: round; } .ch-arrow path { fill: rgba(63, 155, 82, .95); }
+.ch-arrow line.bad { stroke: rgba(214, 69, 65, .8); } .ch-arrow path.bad { fill: rgba(214, 69, 65, .9); }
+.ch-board.shake { animation: chshake .35s; } @keyframes chshake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+.chp { position: relative; z-index: 1; width: 90%; height: 90%; max-width: 90%; max-height: 90%; aspect-ratio: 1; display: block; stroke-linejoin: round; stroke-linecap: round; will-change: transform; }
+.chp.w { fill: #fbfaf5; stroke: #1c1c1c; stroke-width: 1.4; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+.chp.b { fill: #2a2a2c; stroke: #0b0b0c; stroke-width: 1.4; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+.chp .dt { fill: none; stroke-width: 1.1; } .chp.b .dt { stroke: #d9d6cc; } .chp.w .dt { stroke: #1c1c1c; }
+.chp .dt-f { stroke: none; } .chp.w .dt-f { fill: #1c1c1c; } .chp.b .dt-f { fill: #d9d6cc; }
+.ch-rk, .ch-fl { position: absolute; font-size: clamp(8px, 1.6vw, 11px); font-weight: 700; line-height: 1; pointer-events: none; z-index: 2; }
+.ch-rk { top: 3px; left: 3px; } .ch-fl { bottom: 2px; right: 3px; }
+.ch-sq.l .ch-rk, .ch-sq.l .ch-fl { color: var(--chd, #b4875f); } .ch-sq.d .ch-rk, .ch-sq.d .ch-fl { color: var(--chl, #eeddc0); }
+.ch-sq.chk::before { content: ""; position: absolute; inset: 0; background: radial-gradient(circle, rgba(255, 40, 40, .95) 0%, rgba(230, 20, 20, .55) 40%, transparent 72%); }
+.ch-badge { position: absolute; top: -6%; right: -6%; z-index: 5; min-width: 42%; height: 42%; padding: 0 3px; border-radius: 999px; display: grid; place-items: center; font-weight: 800;
+  font-size: clamp(8px, 1.5vw, 12px); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.45); border: 2px solid #fff; }
+.ch-badge.b { background: #ca3431; } .ch-badge.m { background: #e58f2a; } .ch-badge.i { background: #d8b425; } .ch-badge.g { background: #5c9a3c; }
+.ch-sq:has(.ch-badge) { overflow: visible; z-index: 2; }
+.ch-board { overflow: visible; grid-template-rows: repeat(8, minmax(0, 1fr)); grid-template-columns: repeat(8, minmax(0, 1fr)); } .ch-sq { min-width: 0; min-height: 0; } .ch-board > .ch-sq:first-child { border-top-left-radius: 6px; } .ch-board > .ch-sq:nth-child(8) { border-top-right-radius: 6px; }
+.ch-board > .ch-sq:nth-child(57) { border-bottom-left-radius: 6px; } .ch-board > .ch-sq:nth-child(64) { border-bottom-right-radius: 6px; }
+.ch-board.mini { max-width: 168px; box-shadow: 0 1px 4px rgba(0,0,0,.35); border-radius: 4px; flex: none; }
+.ch-sq.wrong::before { content: ""; position: absolute; inset: 0; background: rgba(214, 69, 65, .55); animation: chwrong .8s forwards; } @keyframes chwrong { to { opacity: 0; } }
