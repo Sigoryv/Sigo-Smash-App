@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#14161f">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http://127.0.0.1:*; connect-src 'self' https://api.start.gg https://api.github.com https://api.shobuapp.fr http://127.0.0.1:*; manifest-src 'self'; worker-src 'self'">
-<title>Sigo Smash</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http://127.0.0.1:*; connect-src 'self' https://api.chess.com https://api.start.gg https://api.github.com https://api.shobuapp.fr http://127.0.0.1:*; manifest-src 'self'; worker-src 'self'">
+<title>Sigo</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="chess.css">
 </head>
 <body>
 <header id="top"><div id="title">Smash</div><button id="find-char" aria-label="Chercher un perso (move set)">🔎</button><button id="sync" aria-label="Synchroniser">⟳</button><button id="gear" aria-label="Réglages">⚙</button></header>
@@ -28,5 +29,11 @@
 <div id="toast" hidden></div>
 <script src="app.js"></script>
 <script src="lineup.js"></script>
+<script src="spaces.js"></script>
+<script src="wh.js"></script>
+<script src="chesslib.js"></script>
+<script src="chess_gfx.js"></script>
+<script src="chess_lib.js"></script>
+<script src="ch.js"></script>
 </body>
 </html>
