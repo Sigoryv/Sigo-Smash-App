@@ -97,7 +97,7 @@ function viewWList(L) {
     return ls.length ? `<div class="wgroup"><div class="small wgroup-h">🔗 Unité menée · ${ls.reduce((a, x) => a + x.cost + (x.enh_cost || 0), u.cost + (u.enh_cost || 0))} pts</div>${row(u)}${ls.map((x) => row(x, true)).join("")}</div>` : row(u); }).join("");
   return `<button class="btn wback" data-wact="lists">← Listes</button>
     <div class="card whero" style="--fh:${wHue(L.faction)}">${art ? `<div class="wl-art big" data-eimg="${esc(art)}"></div>` : ""}<div class="row" style="border:none;padding:0">${wBadge(L.faction)}<div class="grow"><div><b>${esc(L.name)}</b></div>
-      <div class="muted small">${esc(L.faction)}${L.detachment ? " · " + esc(L.detachment) : ""}</div></div><label class="btn wpic-btn" title="Une image pour cette liste">🖼<input type="file" accept="image/*" id="wl-img" hidden></label><button class="btn" data-wact="list-edit">✏</button></div>
+      <div class="muted small">${esc(L.faction)}${L.detachment ? " · " + esc(L.detachment) : ""}</div></div><button class="btn wpic-btn" data-wpicker="list" data-key="${esc(L.id)}" title="Une image pour cette liste">🖼</button><button class="btn" data-wact="list-edit">✏</button></div>
       <div class="wtot ${t > L.target ? "over" : ""}"><b>${t}</b> / ${L.target} pts · ${t > L.target ? `⚠ ${t - L.target} de trop` : `reste ${L.target - t}`}</div><div class="bar"><span style="width:${Math.min(100, (100 * t) / (L.target || 1))}%"></span></div></div>
     ${L.units.length ? `<div class="card wchecks ${checks.some((c) => c[0] === "ko") ? "ko" : checks.length ? "mid" : "ok"}">${checks.length ? checks.map(([k, x]) => `<div class="small ${k}">${k === "ko" ? "✗" : "!"} ${esc(x)}</div>`).join("") : '<div class="small">✅ La liste respecte les règles de base.</div>'}</div>` : ""}
     <div class="card">${body || '<div class="empty">Liste vide.</div>'}</div>
@@ -183,7 +183,7 @@ function sheetWSheet(fac, id) {
     ${wt(u.ranged, false)}${wt(u.melee, true)}
     ${u.abilities?.length ? `<h3>✨ Aptitudes</h3><div class="card">${u.abilities.map((a) => `<p class="small"><b>${esc(a.name)}</b>${a.description ? " — " + esc(a.description.replace(/\*\*/g, "")) : ""}</p>`).join("")}</div>` : ""}
     ${u.keywords?.length ? `<div class="chips wrap">${u.keywords.map((k) => `<span class="chip">${esc(k)}</span>`).join("")}</div>` : ""}
-    <div class="btns"><label class="btn">🖼 ${p ? "Changer l'image" : "Ajouter une image"}<input type="file" accept="image/*" id="ws-img" data-key="${esc(wKey(u.name))}" data-fac="${esc(fac)}" data-id="${esc(id)}" hidden></label><button class="btn" data-act="close">Fermer</button></div>`);
+    <div class="btns"><button class="btn" data-wpicker="unit" data-key="${esc(wKey(u.name))}" data-fac="${esc(fac)}" data-id="${esc(id)}">🖼 ${p ? "Changer l'image" : "Choisir une image"}</button><button class="btn" data-act="close">Fermer</button></div>`);
 }
 
 /* ------------------------------------------------------------ 📦 la collection */
@@ -202,11 +202,37 @@ function sheetWColl(id) {
   const x = E.get("wh:coll:" + id); if (!x) return;
   sheet(`<h2>📦 ${esc(x.name)}</h2><div class="muted small">${esc(x.project || x.faction || "")}</div>
     <div class="wphotos">${(x.photos || []).map((p) => `<span class="wph" data-eimg="${esc(p)}"><button class="wph-x" data-wphrm="${esc(p)}" data-id="${esc(id)}" aria-label="Retirer">✕</button></span>`).join("")}
-      <label class="wph add" title="Prendre ou choisir une photo">📷<span class="small">Ajouter</span><input type="file" accept="image/*" capture="environment" id="wc-file" data-id="${esc(id)}" hidden></label></div>
+      <label class="wph add" title="Prendre ou choisir une photo">📷<span class="small">Ajouter</span><input type="file" accept="image/*" multiple id="wc-file" data-id="${esc(id)}" hidden></label></div>
     <div class="card">${WHS.map(([k, n]) => `<div class="row wlive-k"><span class="wst-dot wst-${k}"></span><div class="grow">${n}</div><div class="wstep"><button class="btn" data-wcs="${k}" data-d="-1">−</button><b data-wcv="${k}">${x.counts?.[k] || 0}</b><button class="btn" data-wcs="${k}" data-d="1">＋</button></div></div>`).join("")}
       <div class="muted small">Une figurine passe à l'état suivant : − sur l'un, ＋ sur l'autre.</div></div>
     <h3>🎨 Recette de peinture</h3><textarea id="wc-r" rows="4">${esc(x.recipe || "")}</textarea><h3>Notes</h3><textarea id="wc-n" rows="2">${esc(x.notes || "")}</textarea>
     <div class="btns"><button class="btn" data-act="close">Annuler</button><button class="btn accent" data-wact="coll-save" data-id="${esc(id)}">Enregistrer</button></div>`);
+}
+
+/* ------------------------------------------------------------ 🖼 (v80) choisir une image : une de tes photos déjà là, ou une nouvelle */
+function wAllPhotos() {
+  const seen = new Set(), out = [];
+  const add = (name, label) => { if (name && !seen.has(name) && (D.esp.flat["file:warhammer/photos/" + name] || D.espRO.files?.[name])) { seen.add(name); out.push({ name, label }); } };
+  for (const x of E.list("wh:coll:").sort((a, b) => a.name.localeCompare(b.name))) for (const p of x.photos || []) add(p, x.name);
+  for (const [k, v] of Object.entries(D.esp.flat)) if (k.startsWith("wh:uimg:") || k.startsWith("wh:art:")) add(v, k.startsWith("wh:art:list:") ? "image de liste" : k.startsWith("wh:art:") ? "faction" : "image d'unité");
+  for (const k of Object.keys(D.espRO.files || {})) add(k, "");
+  return out;
+}
+function sheetWPicker(kind, key, fac, id) {
+  const ph = wAllPhotos(), cur = kind === "list" ? wArt("list:" + key) : wUimg(key);
+  WHP.pick = { kind, key, fac, id };
+  sheet(`<h2>🖼 ${kind === "list" ? "L'image de la liste" : "L'image de l'unité"}</h2>
+    <label class="btn accent wpick-new">📷 Appareil photo ou galerie du téléphone<input type="file" accept="image/*" id="wp-file" hidden></label>
+    <h3>Tes photos (collection, images déjà choisies)</h3>
+    ${ph.length ? `<div class="wpick">${ph.map((x) => `<button class="wpick-i ${x.name === cur ? "on" : ""}" data-wpick="${esc(x.name)}" title="${esc(x.label)}"><span class="wph" data-eimg="${esc(x.name)}"></span><small>${esc(x.label)}</small></button>`).join("")}</div>`
+      : '<div class="empty small">Pas encore de photo : prends-en une, ou ajoute-en dans 📦 Collection.</div>'}
+    <div class="btns">${cur ? '<button class="btn danger" data-wact="pick-none">Retirer l\'image</button>' : ""}<button class="btn" data-act="close">Annuler</button></div>`);
+}
+function wPickDone(name) {
+  const P = WHP.pick; if (!P) return;
+  if (P.kind === "list") { E.set("wh:art:list:" + P.key, name || null); closeSheet(); }
+  else { E.set("wh:uimg:" + P.key, name || null); sheetWSheet(P.fac, P.id); }
+  toast(name ? "🖼 Image choisie" : "Image retirée");
 }
 
 TABS.wlists = viewWLists; TABS.wlive = viewWLive; TABS.wsheets = viewWSheets; TABS.wcoll = viewWColl;
@@ -218,7 +244,7 @@ document.addEventListener("input", (e) => {
 });
 document.addEventListener("change", async (e) => {
   const t = e.target;
-  if ((t.id === "wc-file" || t.id === "wl-img" || t.id === "ws-img") && t.files?.length) {
+  if ((t.id === "wc-file" || t.id === "wp-file") && t.files?.length) {
     if (!D.cfg.pass) return toast("Règle d'abord la synchro (⚙) : la photo est chiffrée avec ton mot de passe.", true);
     toast("📷 Photo…");
     try {
@@ -226,8 +252,7 @@ document.addEventListener("change", async (e) => {
         const x = E.get("wh:coll:" + t.dataset.id); if (!x) return;
         for (const f of t.files) x.photos = [...(x.photos || []), await espAddPhoto(f)].slice(-20);
         E.set("wh:coll:" + x.id, x); sheetWColl(x.id);
-      } else if (t.id === "wl-img") { E.set("wh:art:list:" + WHP.list, await espAddPhoto(t.files[0], 1400)); render(); }
-      else { E.set("wh:uimg:" + t.dataset.key, await espAddPhoto(t.files[0], 1400)); sheetWSheet(t.dataset.fac, t.dataset.id); }
+      } else wPickDone(await espAddPhoto(t.files[0], 1400));
       toast("📷 Ajoutée : elle part vers tes PC à la synchro");
     } catch (err) { toast("Photo illisible : " + err.message, true); }
     return;
@@ -247,6 +272,8 @@ document.addEventListener("click", (e) => {
     L.units.push({ uid: wid("l"), unit_id: r.id, name: r.name, variant: v0?.name || "", cost: v0?.cost || wPts(r), enh: "", enh_cost: 0, warlord: false, notes: "", models: v0?.models || (r.type === "model" ? 1 : 0) });
     wSaveList(L); closeSheet(); return toast(`＋ ${r.name}`); }
   const st = t.closest("[data-wst]"); if (st) { const b = $(`[data-wg="${st.dataset.i}"]`); b.textContent = Math.max(0, Math.min(50, +b.textContent + +st.dataset.wst)); return; }
+  const pk = t.closest("[data-wpicker]"); if (pk) return sheetWPicker(pk.dataset.wpicker, pk.dataset.key, pk.dataset.fac, pk.dataset.id);
+  const pi = t.closest("[data-wpick]"); if (pi) return wPickDone(pi.dataset.wpick);
   const rm = t.closest("[data-wphrm]");
   if (rm) { e.stopPropagation(); if (!confirm("Retirer cette photo (aussi sur tes PC) ?")) return; const x = E.get("wh:coll:" + rm.dataset.id); x.photos = (x.photos || []).filter((p) => p !== rm.dataset.wphrm); E.set("wh:coll:" + x.id, x); E.set("file:warhammer/photos/" + rm.dataset.wphrm, null); return sheetWColl(x.id); }
   const cs = t.closest("[data-wcs]"); if (cs) { const b = $(`[data-wcv="${cs.dataset.wcs}"]`); b.textContent = Math.max(0, Math.min(999, +b.textContent + +cs.dataset.d)); return; }
@@ -257,6 +284,7 @@ document.addEventListener("click", (e) => {
   e.preventDefault();
   const a = el.dataset.wact, L = wCurList();
   if (a === "lists") { WHP.list = ""; return render(); }
+  if (a === "pick-none") return wPickDone("");
   if (a === "list-new") return sheetWListEdit(null);
   if (a === "list-edit") return sheetWListEdit(L);
   if (a === "list-save") {
