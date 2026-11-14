@@ -754,7 +754,17 @@ async function syncAll() {
 
 /* ------------------------------------------------------------ les écrans */
 const TABS = { home: viewHome, tours: viewTours, players: viewPlayers, mu: viewMatchups, carnet: viewCarnet };
+const SCROLL = {};                                         // (v69) la position de chaque onglet
+let lastTab = null;
 function render() {
+  const y = window.scrollY;
+  if (lastTab && lastTab !== D.tab) SCROLL[lastTab] = y;
+  const back = lastTab === D.tab ? y : (SCROLL[D.tab] || 0);
+  lastTab = D.tab;
+  renderView();
+  requestAnimationFrame(() => window.scrollTo(0, back));
+}
+function renderView() {
   $$("#tabs [data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === D.tab));
   const p = D.player;
   $("#title").textContent = p ? (p.prefix ? p.prefix + " | " : "") + p.tag : "Sigo Smash";
@@ -1135,7 +1145,7 @@ function bindView() {
   const fq = $("#find-q"); if (fq) fq.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); findGo(); } };
   const q = $("#pq"); if (q) q.oninput = () => { pq = q.value; clearTimeout(q.t); q.t = setTimeout(() => { render(); const n = $("#pq"); n.focus(); n.setSelectionRange(pq.length, pq.length); }, 200); }; }
 document.addEventListener("click", async (e) => {
-  const tab = e.target.closest("#tabs [data-tab]"); if (tab) { D.tab = tab.dataset.tab; save(); render(); window.scrollTo(0, 0); return; }
+  const tab = e.target.closest("#tabs [data-tab]"); if (tab) { if (tab.dataset.tab === D.tab) { SCROLL[D.tab] = 0; window.scrollTo({ top: 0, behavior: "smooth" }); return; } D.tab = tab.dataset.tab; save(); render(); return; }
   if (e.target.closest("#gear")) return sheetSettings();
   if (e.target.closest("#sync")) return syncAll();
   if (e.target.id === "sheet-back") return closeSheet();
@@ -1223,3 +1233,19 @@ if ("serviceWorker" in navigator && location.protocol === "https:") navigator.se
 render();
 if (navigator.onLine && (D.cfg.sgToken || D.cfg.repo) && (!D.lastCloud || Date.now() - new Date(D.lastCloud).getTime() > 10 * 60000)) syncAll();
 window.addEventListener("online", () => cloudSoon());
+
+/* ------------------------------------------------------------ (v69) tirer vers le bas pour synchroniser */
+(() => {
+  let y0 = null, pull = 0;
+  const ind = document.body.appendChild(Object.assign(document.createElement("div"), { id: "ptr", innerHTML: "⟳" }));
+  document.addEventListener("touchstart", (e) => { y0 = window.scrollY <= 0 && $("#sheet-back").hidden ? e.touches[0].clientY : null; pull = 0; }, { passive: true });
+  document.addEventListener("touchmove", (e) => {
+    if (y0 == null) return; pull = Math.max(0, e.touches[0].clientY - y0);
+    if (window.scrollY > 0) { y0 = null; pull = 0; }
+    ind.style.transform = `translate(-50%, ${Math.min(pull, 110) - 50}px) rotate(${pull * 3}deg)`; ind.classList.toggle("go", pull > 80); ind.style.opacity = Math.min(1, pull / 80);
+  }, { passive: true });
+  document.addEventListener("touchend", () => {
+    if (y0 != null && pull > 80 && !$("#sync").classList.contains("spin")) $("#sync").click();
+    y0 = null; pull = 0; ind.style.transform = "translate(-50%, -50px)"; ind.style.opacity = 0; ind.classList.remove("go");
+  });
+})();
