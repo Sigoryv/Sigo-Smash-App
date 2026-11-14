@@ -1,7 +1,7 @@
 :root { --bg: #14161f; --panel: #1d2030; --panel2: #232740; --line: #2f3450; --text: #eceef6; --muted: #9aa0b8; --accent: #e8a33d;
   --green: #4cc38a; --red: #e5646e; --field: #151827; --safe-b: env(safe-area-inset-bottom, 0px); color-scheme: dark; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: var(--fs, 15px)/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 body { padding: 52px 0 calc(64px + var(--safe-b)); min-height: 100vh; overscroll-behavior-y: contain; }
 button, input, select, textarea { font: inherit; color: inherit; }
 #top { position: fixed; top: 0; left: 0; right: 0; height: 52px; display: flex; align-items: center; gap: 6px; padding: 0 10px 0 16px; background: var(--bg); border-bottom: 1px solid var(--line); z-index: 5; }
@@ -292,3 +292,73 @@ a { color: var(--accent); }
 .wpick-i { border: 2px solid transparent; background: none; padding: 0; border-radius: 12px; display: flex; flex-direction: column; gap: 3px; min-width: 0; color: var(--muted); }
 .wpick-i .wph { width: 100%; height: auto; aspect-ratio: 1; } .wpick-i small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .7em; }
 .wpick-i.on { border-color: var(--accent); }
+
+/* ---------------------------------------------------------------- v82 : ● synchro, 👆 gestes, 🔆 */
+#top #syncdot { width: 30px; display: flex; align-items: center; justify-content: center; }
+#syncdot i { width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 25%, transparent); }
+#syncdot.wait i { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+#syncdot.off i { background: #7b8094; box-shadow: none; } #syncdot.err i { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 25%, transparent); }
+#syncdot.busy i { background: var(--accent); animation: dotpulse 1s ease-in-out infinite; } @keyframes dotpulse { 50% { opacity: .3; } }
+#syncdot[hidden] { display: none !important; }
+html[data-swipe=l] #view { animation: swl .22s ease-out; } html[data-swipe=r] #view { animation: swr .22s ease-out; }
+@keyframes swl { from { transform: translateX(40px); opacity: .4; } } @keyframes swr { from { transform: translateX(-40px); opacity: .4; } }
+#sheet { will-change: transform; }
+.chip.wake.on { color: #f5c542; border-color: currentColor; }
+
+/* ---------------------------------------------------------------- v83 : 🎨 une couleur par espace, ✨ transitions, ⏳ squelettes, 📐 paysage */
+html[data-space=wh] { --accent: #d4664f; } html[data-space=ch] { --accent: #5fbf86; }
+html[data-space=wh] #top { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 55%, transparent); } html[data-space=ch] #top { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+html[data-space=smash] #top { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+#tabs button.on span { transform: translateY(-1px) scale(1.08); transition: transform .15s; } #tabs button.on::after { content: ""; display: block; width: 18px; height: 3px; border-radius: 2px; background: var(--accent); margin-top: 2px; }
+#view.ux-in { animation: uxin .2s ease-out; } @keyframes uxin { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { #view.ux-in, html[data-swipe] #view { animation: none !important; } }
+.skel-r { display: flex; gap: 10px; align-items: center; padding: 12px 14px; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+.skel-r i { width: 40px; height: 40px; border-radius: 10px; flex: none; } .skel-r > div { flex: 1; display: flex; flex-direction: column; gap: 7px; } .skel-r b { display: block; height: 10px; border-radius: 5px; }
+.skel-r i, .skel-r b { background: linear-gradient(90deg, var(--panel2) 25%, color-mix(in srgb, var(--panel2) 60%, var(--line)) 50%, var(--panel2) 75%); background-size: 200% 100%; animation: skel 1.2s linear infinite; }
+@keyframes skel { to { background-position: -200% 0; } }
+.ux-i { width: 36px !important; height: 36px !important; flex: none; }
+@media (orientation: landscape) and (max-height: 520px) {
+  body { padding-bottom: calc(46px + var(--safe-b)); } #tabs button { min-height: 44px; flex-direction: row; gap: 6px; padding: 4px 0; font-size: .78em; } #tabs button.on::after { display: none; }
+  #view .ch-board:not(.mini) { max-width: min(100%, calc(100vh - 120px)); }
+  #view .ch-bw { max-width: calc(100vh - 100px); margin-left: auto; margin-right: auto; }
+  #sheet { max-height: 96vh; } .bk-wrap { max-height: calc(100vh - 150px) !important; }
+  #view { max-width: 980px; margin: 0 auto; }
+}
+#top { gap: 2px; padding-right: 6px; } #top button { width: 38px; height: 42px; font-size: 1.15em; } #top #syncdot { width: 22px; }
+#top #spaces button { width: 34px; height: 34px; } #spaces { margin-right: 4px; }
+#title { font-size: 1.02em; min-width: 0; }
+#sheet:has(#ux-q) { min-height: 70vh; }
+/* 🔁 v84 : poules (round robin) et rondes suisses — classement, grille, ton point (bk_pool.js) */
+.bkp-pill { display: inline-block; font-size: .68em; font-weight: 700; letter-spacing: .03em; padding: 1px 7px; border-radius: 999px; vertical-align: middle; border: 1px solid var(--line); color: var(--muted); }
+.bkp-pill.rr { color: #5fa8e8; border-color: color-mix(in srgb, #5fa8e8 50%, transparent); } .bkp-pill.swiss { color: #b48be8; border-color: color-mix(in srgb, #b48be8 50%, transparent); }
+.bkp-info { margin-bottom: 8px; }
+.bkp-me { border-left: 4px solid var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px; }
+.bkp-me.pulse { outline: 2px solid #e8a33d; outline-offset: 2px; }
+.bkp-ok { color: var(--green); font-weight: 600; } .bkp-ko { color: var(--red); font-weight: 600; }
+.bkp-path { display: flex; flex-wrap: wrap; gap: 4px; }
+.bkp-step { font-size: .8em; padding: 2px 7px; border-radius: 6px; border: 1px solid var(--line); white-space: nowrap; }
+.bkp-step.w { border-color: color-mix(in srgb, var(--green) 60%, transparent); color: var(--green); } .bkp-step.l { border-color: color-mix(in srgb, var(--red) 60%, transparent); color: var(--red); }
+.bkp-step.live { border-color: var(--red); }
+.bkp-body { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+.bkp-std, .bkp-grid { border-collapse: collapse; font-size: .84em; }
+.bkp-std th, .bkp-std td { padding: 4px 8px; text-align: center; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bkp-std th { font-size: .82em; color: var(--muted); font-weight: 600; }
+.bkp-std .lf, .bkp-grid .lf { text-align: left; }
+.bkp-std .rk { color: var(--muted); width: 26px; }
+.bkp-std tr.sep td { border-top: 2px solid var(--line); }
+.bkp-std tr.cut td, .bkp-grid tbody tr.cut th, .bkp-grid tbody tr.cut td { border-top: 2px dashed var(--green); }
+.bkp-qm { color: var(--green); margin-left: 2px; font-size: .9em; }
+.bkp-pn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; max-width: 190px; }
+.bkp-pn .bk-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bkp-std tr.me .bk-name, .bkp-grid tr.me .bk-name, .bkp-grid th.me { color: var(--accent); font-weight: 700; }
+.bkp-std tr.me, .bkp-grid tr.me { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.bkp-std tr.hl, .bkp-grid tr.hl { background: color-mix(in srgb, #e8a33d 14%, transparent); }
+.bkp-gridw { overflow-x: auto; max-width: 100%; }
+.bkp-grid th, .bkp-grid td { border: 1px solid color-mix(in srgb, var(--line) 80%, transparent); padding: 3px 5px; text-align: center; min-width: 34px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bkp-grid thead th { font-size: .78em; color: var(--muted); font-weight: 600; } .bkp-grid thead th div { font-size: .85em; font-weight: 400; }
+.bkp-grid tbody th { font-weight: 400; }
+.bkp-grid td.diag { background: repeating-linear-gradient(45deg, transparent 0 4px, color-mix(in srgb, var(--line) 60%, transparent) 4px 5px); }
+.bkp-grid td.w { color: var(--green); font-weight: 700; background: color-mix(in srgb, var(--green) 12%, transparent); }
+.bkp-grid td.l { color: var(--red); background: color-mix(in srgb, var(--red) 9%, transparent); }
+.bkp-grid td.next { color: var(--muted); } .bkp-grid td.live { color: var(--red); font-weight: 700; }
+.bkp-sets > summary { cursor: pointer; color: var(--muted); font-size: .86em; margin: 8px 0; }
