@@ -710,6 +710,7 @@ async function syncCloud() {
   let snapShobu = null;
   if (snap.obj) {
     const s = await decrypt(snap.obj); snapShobu = s;
+    if (typeof luSyncFrames === "function") await luSyncFrames(s).catch(() => {});   // (v65 : la frame data gardée par le Hub)
     if (s.last_sync && (!D.lastSg || new Date(s.last_sync) > new Date(D.lastSg))) {
       D.sets = s.sets || D.sets; D.chars = Object.keys(s.chars || {}).length ? s.chars : D.chars; D.player = s.player || D.player;
       if (s.charimg || s.avatars) D.media = { charimg: s.charimg || {}, avatars: s.avatars || {} };
