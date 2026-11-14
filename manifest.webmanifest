@@ -1,7 +1,7 @@
 {
-  "name": "Sigo Smash",
-  "short_name": "Smash",
-  "description": "Tes tournois Smash : start.gg, bracket, scouting, carnet — synchronisé avec le Hub.",
+  "name": "Sigo",
+  "short_name": "Sigo",
+  "description": "Smash, Warhammer et Échecs dans ta poche — synchronisé avec le Hub.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
