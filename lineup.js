@@ -95,6 +95,7 @@ document.addEventListener("click", (e) => {
   e.preventDefault();
   const a = el.dataset.lact;
   if (a === "add") return sheetLuAdd();
+  if (a === "frames-reload") { localStorage.removeItem("sigo.frames.hash"); LUF.pages = null; return syncAll(); }
   if (a === "pick") { const cat = $("#lu-add-cat").value; luSetCat(el.dataset.slug, cat); el.classList.add("in"); return toast(`🎭 ${luN(el.dataset.slug)} → ${LU_CATS.find((x) => x[0] === cat)[2]}`); }
   if (a === "save-note") { const s = el.dataset.slug, cur = C.get("lineup", s); if (cur) { const t = $("#lu-note").value.trim(); const n = { ...cur }; if (t) n.note = t; else delete n.note; C.set("lineup", s, n); } toast("📝 Enregistré."); return closeSheet(); }
 });
@@ -124,14 +125,20 @@ async function luFramesLoad() {
 }
 /** à la synchro : les fichiers frames-N.enc.json du Hub, seulement s'ils ont changé */
 async function luSyncFrames(s) {
-  const f = s?.frames; if (!f || !f.n || localStorage.getItem("sigo.frames.hash") === f.hash) return;
+  const f = s?.frames;
+  if (!f || !f.n) { localStorage.setItem("sigo.frames.err", "Le Hub n'a pas encore envoyé de frame data (il la lit en fond, puis la synchro l'apporte)."); return; }
+  if (localStorage.getItem("sigo.frames.hash") === f.hash && LUF.pages && Object.keys(LUF.pages).length) { localStorage.removeItem("sigo.frames.err"); return; }
   const pages = {};
-  for (let i = 0; i < f.n; i++) { const g = await ghGet(`frames-${i}.enc.json`); if (!g.obj) return; Object.assign(pages, (await decrypt(g.obj)).pages || {}); }
+  for (let i = 0; i < f.n; i++) {
+    const g = await ghGet(`frames-${i}.enc.json`);
+    if (!g.obj) throw new Error(`frames-${i}.enc.json introuvable dans le dépôt : relance la synchro dans le Hub.`);
+    Object.assign(pages, (await decrypt(g.obj)).pages || {});
+  }
   LUF.pages = pages;
   const body = JSON.stringify(pages);
   if (self.caches) await (await caches.open("sigo-frames")).put("frames.json", new Response(body, { headers: { "Content-Type": "application/json" } }));
   else localStorage.setItem("sigo.frames", body);
-  localStorage.setItem("sigo.frames.hash", f.hash);
+  localStorage.setItem("sigo.frames.hash", f.hash); localStorage.removeItem("sigo.frames.err");
 }
 
 /* ------------------------------------------------------------ la page d'un perso (move set, stats, mes MU) */
@@ -312,7 +319,9 @@ function viewInfos() {
   if (!LUF.pages) luFramesLoad().then(() => { if (D.tab === "infos") { const g = $("#inf-grid"); if (g) g.innerHTML = infTiles(infList(INFQ.q)); const c = $("#inf-n"); if (c) c.textContent = Object.keys(LUF.pages).length; } });
   return `<div class="inf-q"><input type="search" id="inf-q" placeholder="Un perso, un surnom (zss, ddd, kkr…)" value="${esc(INFQ.q)}" autocomplete="off"></div>
     ${rec.length ? `<div id="inf-rec" ${INFQ.q ? "hidden" : ""}><h3>🕘 Récemment</h3><div class="lu-strip" style="margin-bottom:10px">${infTiles(rec)}</div></div>` : ""}
-    <div class="muted small" style="margin:0 2px 6px">🥊 frame data sur ce téléphone : <b id="inf-n">${have}</b> page(s)${have < 89 ? " · le reste : Hub → 🔎 Infos → « 📥 Tout le roster », puis ⟳" : ""}</div>
+    <div class="muted small" style="margin:0 2px 6px">🥊 frame data sur ce téléphone : <b id="inf-n">${have}</b> page(s)${have < 89 ? " · le Hub lit les autres en fond : ⟳ plus tard pour les recevoir" : ""}
+      <button class="chip-b" data-lact="frames-reload" style="margin-left:6px">⟳ Recharger</button></div>
+    ${localStorage.getItem("sigo.frames.err") ? `<div class="card err small">⚠ ${esc(localStorage.getItem("sigo.frames.err"))}</div>` : ""}
     <div class="lu-grid" id="inf-grid">${infTiles(infList(INFQ.q))}</div>`;
 }
 TABS.infos = viewInfos;
