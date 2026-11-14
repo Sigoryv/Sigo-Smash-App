@@ -73,7 +73,7 @@ const wThumb = (name, fac, unitId, cls = "wth") => { const p = wPic(name, unitId
 
 /* ------------------------------------------------------------ 📋 les listes */
 function viewWLists() {
-  if (whNeedUnits()) return '<div class="empty">Les fiches…</div>';
+  if (whNeedUnits()) return uxSkel(5);
   const lists = E.list("wh:list:").sort((a, b) => a.name.localeCompare(b.name));
   const L = WHP.list && lists.find((l) => l.id === WHP.list);
   if (L) return viewWList(L);
@@ -163,7 +163,7 @@ function viewWLive() {
 
 /* ------------------------------------------------------------ 📖 les fiches */
 function viewWSheets() {
-  if (whNeedUnits()) return '<div class="empty">Les fiches…</div>';
+  if (whNeedUnits()) return uxSkel(5);
   const facs = Object.keys(WHU.f || {}).sort();
   if (!facs.length) return `<div class="empty">Pas encore de fiches sur ce téléphone.<br><span class="small">Le Hub envoie celles de tes factions (tes listes, tes adversaires) à la synchro : ⟳ dans le Hub puis ici.</span></div>`;
   if (!facs.includes(WHP.fac)) WHP.fac = facs.includes(wCfg().faction) ? wCfg().faction : facs[0];
