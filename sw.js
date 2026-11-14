@@ -1,6 +1,6 @@
 /* Le service worker : l'appli s'ouvre sans réseau (dernière version gardée), les images des tournois aussi. */
-const APP = "sigo-smash-app-v21", IMG = "sigo-smash-img-v1";
-const SHELL = ["./", "index.html", "app.js", "lineup.js", "style.css", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable.png"];
+const APP = "sigo-smash-app-v23", IMG = "sigo-smash-img-v1";
+const SHELL = ["./", "index.html", "app.js", "lineup.js", "spaces.js", "wh.js", "chesslib.js", "chess_gfx.js", "chess_lib.js", "ch.js", "chess.css", "style.css", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(APP).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== APP && k !== IMG).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", (e) => {
