@@ -271,3 +271,17 @@ a { color: var(--accent); }
 .ch-ul { margin: 0; padding-left: 18px; } .ch-ul li { margin: 3px 0; }
 .ch-spark { width: 100%; height: 90px; display: block; }
 .ch-ghead { display: flex; gap: 10px; align-items: flex-start; } .ch-ghead .grow { flex: 1; min-width: 0; }
+
+/* ---------------------------------------------------------------- v78 : 📷 les photos du téléphone */
+.wph { position: relative; } .wph-x { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border-radius: 50%; border: none; background: rgba(0,0,0,.55); color: #fff; font-size: .8em; }
+.wph.add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 1.8em; border: 2px dashed var(--line); background: var(--panel); color: var(--muted); }
+.wph.add span { font-size: .45em; } .wpic-btn { margin-right: 6px; }
+
+/* ---------------------------------------------------------------- v79 : 🔍 analyses, 🎓 répertoire */
+.ch-bw { display: flex; gap: 6px; align-items: stretch; margin-bottom: 8px; } .ch-bw .ch-board { margin: 0 !important; flex: 1; min-width: 0; } .ch-bw .ch-evbar { width: 18px; }
+.ch-ansum { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; } .ch-ansum span { font-size: .8em; padding: 2px 9px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); }
+.ch-ansum .b { color: #ff6b66; } .ch-ansum .m { color: #f0a443; } .ch-ansum .i { color: #e6c94a; }
+.ch-ml button.kb { color: #ff6b66; font-weight: 700; } .ch-ml button.km { color: #f0a443; font-weight: 700; } .ch-ml button.ki { color: #e6c94a; }
+.ch-tip { border-color: color-mix(in srgb, var(--green) 50%, var(--line)); }
+.ch-rep-b { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); } .ch-rep-i { font-size: 1.8em; } .accent { color: var(--accent); }
+.ch-ok { border-color: var(--green); } .ch-ko { border-color: var(--red); }
