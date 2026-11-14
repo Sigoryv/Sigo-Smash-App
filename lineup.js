@@ -1,4 +1,4 @@
-/* mobile/lineup.js — 🎭 LA LINE UP dans la poche (v63)
+/* mobile/lineup.js — 🎭 LA LINE UP dans la poche (v63 ; v64 : les persos en apprentissage ne sont pas conseillés)
    Tes persos (Main, Secondaire, Pocket, En apprentissage), « Contre qui ? » pour choisir ton perso le jour J,
    la fiche d'un perso (tes games, ta note, ta MU chart à éditer) et les fiches MU. Tout vit dans le carnet
    (sections lineup, mu_rate), synchronisé avec le Hub. Les portraits viennent d'Ultimate Frame Data (en direct). */
@@ -40,7 +40,7 @@ function viewLineup() {
   const mine = luMine(), G = luGames(), opp = D.luOpp || "";
   let pick = "";
   if (opp && luR(opp)) {
-    const rows = mine.map((m) => ({ m, sc: luScore(m.slug, opp, G), rec: luRec(G.filter((g) => g.me === m.slug && g.opp === opp)) }))
+    const rows = mine.filter((m) => m.cat !== "learn").map((m) => ({ m, sc: luScore(m.slug, opp, G), rec: luRec(G.filter((g) => g.me === m.slug && g.opp === opp)) }))
       .sort((a, b) => (b.sc?.v ?? -9) - (a.sc?.v ?? -9) || b.rec.pct - a.rec.pct);
     pick = `<div class="lu-vs">${luArt(opp, "lu-a lg")}<div class="grow"><div class="muted small">Contre</div><b>${esc(luN(opp))}</b>
         ${C.get("matchups", luN(opp)) ? `<div class="small muted lu-mu-peek">📒 ${esc(C.get("matchups", luN(opp)).slice(0, 90))}</div>` : ""}</div>
@@ -106,4 +106,192 @@ document.addEventListener("change", (e) => {
   if (t.id === "lu-new-opp" && t.value) { C.set("mu_rate", `${t.dataset.me}|${t.value}`, 0); return sheetLuChar(t.dataset.me); }
 });
 TABS.mu = viewLineup;
+if (D.tab === "mu") render();
+
+/* ============================================================ v65 : la frame data, les MU charts, les tier lists, 🔎 Infos */
+const LU_MCATS = [["groundattacks", "Au sol"], ["aerialattacks", "Aériens"], ["specialattacks", "Spéciaux"], ["grabs", "Chopes"], ["dodges", "Esquives"]];
+const UFD = "https://ultimateframedata.com/";
+const LUF = { pages: null };
+const luPages = (slug) => ({ "pokemon-trainer": ["pt_squirtle", "pt_ivysaur", "pt_charizard"], "pyra-mythra": ["pyra", "mythra"] }[slug] || [luR(slug)?.[2] || slug]);
+const LU_FORMS = { pt_squirtle: "Squirtle", pt_ivysaur: "Ivysaur", pt_charizard: "Charizard", pyra: "Pyra", mythra: "Mythra" };
+async function luFramesLoad() {
+  if (LUF.pages) return LUF.pages;
+  try {
+    if (self.caches) { const r = await (await caches.open("sigo-frames")).match("frames.json"); LUF.pages = r ? await r.json() : {}; }
+    else LUF.pages = JSON.parse(localStorage.getItem("sigo.frames") || "{}");
+  } catch (e) { LUF.pages = {}; }
+  return LUF.pages;
+}
+/** à la synchro : les fichiers frames-N.enc.json du Hub, seulement s'ils ont changé */
+async function luSyncFrames(s) {
+  const f = s?.frames; if (!f || !f.n || localStorage.getItem("sigo.frames.hash") === f.hash) return;
+  const pages = {};
+  for (let i = 0; i < f.n; i++) { const g = await ghGet(`frames-${i}.enc.json`); if (!g.obj) return; Object.assign(pages, (await decrypt(g.obj)).pages || {}); }
+  LUF.pages = pages;
+  const body = JSON.stringify(pages);
+  if (self.caches) await (await caches.open("sigo-frames")).put("frames.json", new Response(body, { headers: { "Content-Type": "application/json" } }));
+  else localStorage.setItem("sigo.frames", body);
+  localStorage.setItem("sigo.frames.hash", f.hash);
+}
+
+/* ------------------------------------------------------------ la page d'un perso (move set, stats, mes MU) */
+const LUC = { slug: "", seg: "moves", page: "", cat: "all" };
+async function sheetChar(slug, seg) {
+  Object.assign(LUC, { slug, seg: seg || LUC.seg || "moves" }); if (!luPages(slug).includes(LUC.page)) LUC.page = luPages(slug)[0];
+  const P = await luFramesLoad(), F = P[LUC.page], lu = C.get("lineup", slug), r = luR(slug);
+  const cat = lu?.cat ? LU_CATS.find((x) => x[0] === lu.cat) : null;
+  const G = luGames(), rec = luRec(G.filter((g) => g.me === slug));
+  const forms = luPages(slug).length > 1 ? `<div class="chips">${luPages(slug).map((p) => `<button class="chip-b ${p === LUC.page ? "on" : ""}" data-lact="form" data-p="${p}">${esc(LU_FORMS[p] || p)}</button>`).join("")}</div>` : "";
+  let body = "";
+  if (LUC.seg === "moves") {
+    if (!F) body = `<div class="card empty">Pas de frame data pour ${esc(r[1])} sur ce téléphone.<br><span class="small">Dans le Hub : 🎮 Smash → 🔎 Infos → ouvre ce perso (ou « 📥 Tout le roster »), puis ⟳ ici.</span>
+      <br><a class="btn" style="display:inline-block;margin-top:10px" href="${UFD}${LUC.page}" target="_blank" rel="noopener">Ouvrir Ultimate Frame Data ↗</a></div>`;
+    else {
+      const mv = F.m.filter((m) => LUC.cat === "all" || m[0] === LUC.cat);
+      body = `<div class="chips">${[["all", "Tout"], ...LU_MCATS].map(([k, n]) => `<button class="chip-b ${LUC.cat === k ? "on" : ""}" data-lact="mcat" data-k="${k}">${n}</button>`).join("")}</div>
+        ${mv.map((m) => `<div class="mv">${m[10]?.[0] ? `<img class="mv-gif" src="${UFD}${esc(m[10][0])}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}
+          <div class="mv-b"><b>${esc(m[1])}</b><div class="mv-s"><span><i>Startup</i>${esc(m[2] || "–")}</span><span><i>Actif</i>${esc(m[3] || "–")}</span><span><i>Total</i>${esc(m[4] || "–")}</span>
+          <span><i>Bouclier</i><b class="${parseInt(m[8], 10) >= -4 ? "w" : parseInt(m[8], 10) <= -15 ? "l" : ""}">${esc(m[8] || "–")}</b></span><span><i>Dégâts</i>${esc(m[7] || "–")}</span><span><i>${m[6] ? "Atterr." : "Endlag"}</i>${esc(m[6] || m[5] || "–")}</span></div>
+          ${m[9] ? `<div class="small muted">${esc(m[9])}</div>` : ""}${C.get("move_notes", `${slug}|${m[1]}`) ? `<div class="small">📝 ${esc(C.get("move_notes", `${slug}|${m[1]}`))}</div>` : ""}</div></div>`).join("")}
+        <div class="muted small" style="text-align:center">Frame data : Ultimate Frame Data · <a href="${UFD}${LUC.page}" target="_blank" rel="noopener">la page ↗</a></div>`;
+    }
+  } else if (LUC.seg === "stats") {
+    body = F ? `<div class="card">${F.s.map(([k, v]) => `<div class="row" style="min-height:0"><div class="grow muted small">${esc(k)}</div><b class="small">${esc(v)}</b></div>`).join("")}</div>` : '<div class="card empty">Pas de frame data sur ce téléphone.</div>';
+  } else {
+    const opps = [...new Set([...G.filter((g) => g.me === slug).map((g) => g.opp).filter(Boolean), ...C.section("mu_rate").map(([k]) => k.split("|")).filter(([a]) => a === slug).map(([, b]) => b)])];
+    body = `<div class="card">${opps.map((o) => { const x = luRec(G.filter((g) => g.me === slug && g.opp === o)), v = luRate(slug, o);
+      return `<div class="row">${luArt(o)}<div class="grow"><div><b>${esc(luN(o))}</b></div><div class="muted small">${x.n ? `${x.w}-${x.l} en games` : "pas de game"}</div></div>
+        <select class="lu-rate ${luCls(v)}" data-rate="${o}" data-me="${slug}" style="width:auto"><option value="">—</option>${LU_TIERS.map(([t, n]) => `<option value="${t}" ${v === t ? "selected" : ""}>${luSign(t)} ${n}</option>`).join("")}</select></div>`; }).join("") || '<div class="empty">Aucun matchup noté ni joué.</div>'}</div>`;
+  }
+  sheet(`<div class="lu-head">${luArt(slug, "lu-a xl")}<div class="grow"><h2 style="margin:0">${esc(r[1])}</h2>
+      <div class="small">${cat ? `${cat[1]} ${cat[2]} · ` : ""}${rec.n ? `${wl(rec.w, rec.l)} en games` : '<span class="muted">aucune game</span>'}</div>
+      ${lu ? `<button class="btn" data-lch="${slug}" style="min-height:36px;padding:6px 10px">🎭 Ma fiche</button>` : ""}</div></div>
+    <div class="seg" style="margin-top:10px">${[["moves", "🥊 Coups"], ["stats", "📏 Stats"], ["mu", "🧮 Mes MU"]].map(([k, n]) => `<button class="${LUC.seg === k ? "on" : ""}" data-lact="cseg" data-k="${k}">${n}</button>`).join("")}</div>
+    ${LUC.seg !== "mu" ? forms : ""}${body}
+    <div class="btns"><button class="btn" data-act="close">Fermer</button></div>`);
+  CUR = () => sheetChar(LUC.slug);
+}
+function sheetFind() {
+  const recent = (() => { try { return JSON.parse(localStorage.getItem("sigo.find.recent") || "[]"); } catch (e) { return []; } })();
+  const draw = (q) => {
+    const n = luNorm(q), al = Object.entries(LU_ALIASES).filter(([k]) => n && k.startsWith(n)).map(([, v]) => v);
+    const list = n ? LU_ROSTER.filter(([s, nm]) => luNorm(nm).includes(n) || al.includes(s)) : [...recent.map(luR).filter(Boolean), ...LU_ROSTER.filter(([s]) => !recent.includes(s))];
+    $("#find-grid").innerHTML = list.map(([s, nm]) => `<button class="lu-tile" data-lact="open-char" data-slug="${s}">${luArt(s, "lu-a tile")}<b>${esc(nm)}</b></button>`).join("") || '<div class="empty">Aucun perso.</div>';
+  };
+  sheet(`<h2>🔎 Infos persos</h2><input type="search" id="find-char-q" placeholder="Un perso ou un surnom (zss, ddd…)" autocomplete="off">
+    <div class="lu-grid" id="find-grid"></div><div class="btns"><button class="btn" data-act="close">Fermer</button></div>`);
+  draw(""); const q = $("#find-char-q"); q.oninput = () => draw(q.value); q.focus();
+  q.onkeydown = (e) => { if (e.key === "Enter") { const b = $("#find-grid [data-slug]"); if (b) b.click(); } };
+}
+
+/* ------------------------------------------------------------ 🧮 la MU chart et 🏷 les tier lists */
+const LU_SEGS = [["mine", "🎭 Line up"], ["chart", "🧮 MU chart"], ["tiers", "🏷 Tier lists"]];
+const TLP = { tier: [["S", "#ff7f7f"], ["A", "#ffbf7f"], ["B", "#ffdf7f"], ["C", "#bfff7f"], ["D", "#7fbfff"]], mu: [["+2", "#3fb950"], ["+1", "#8fd18a"], ["0", "#e3b341"], ["-1", "#f0907a"], ["-2", "#d9534f"]] };
+function viewMuChart() {
+  const mine = luMine().filter((m) => m.cat !== "learn"); D.luMc = D.luMc && luR(D.luMc) ? D.luMc : mine[0]?.slug || "";
+  const me = D.luMc, G = luGames();
+  const sel = `<select id="lu-mc">${mine.length ? `<optgroup label="Ma line up">${mine.map((m) => `<option value="${m.slug}" ${m.slug === me ? "selected" : ""}>${esc(luN(m.slug))}</option>`).join("")}</optgroup>` : ""}
+    <optgroup label="Tout le roster">${[...LU_ROSTER].sort((a, b) => a[1].localeCompare(b[1])).filter(([s]) => !mine.some((m) => m.slug === s)).map(([s, n]) => `<option value="${s}" ${s === me ? "selected" : ""}>${esc(n)}</option>`).join("")}</optgroup></select>`;
+  if (!me) return `<div class="card">${sel}<div class="empty">Choisis un perso.</div></div>`;
+  const icon = (s) => { const x = luRec(G.filter((g) => g.me === me && g.opp === s)); return `<button class="mc" data-lact="mc" data-slug="${s}">${luArt(s)}${x.n ? `<i class="${x.pct >= 50 ? "w" : "l"}">${x.w}-${x.l}</i>` : ""}</button>`; };
+  const others = LU_ROSTER.map((r) => r[0]).filter((s) => s !== me);
+  return `<div class="card">${sel}<div class="muted small" style="margin-top:6px">Touche un perso pour le noter.</div></div>
+    ${LU_TIERS.map(([t, n]) => { const l = others.filter((s) => luRate(me, s) === t); return `<div class="tier ${luCls(t)}"><div class="tier-h">${luSign(t)} <span class="small">${n}</span></div><div class="tier-l">${l.map(icon).join("") || '<span class="muted small">—</span>'}</div></div>`; }).join("")}
+    <details class="card"><summary class="small muted">Pas encore notés (${others.filter((s) => luRate(me, s) == null).length})</summary><div class="tier-l" style="margin-top:8px">${others.filter((s) => luRate(me, s) == null).map(icon).join("")}</div></details>`;
+}
+function sheetRate(me, opp) {
+  const v = luRate(me, opp), x = luRec(luGames().filter((g) => g.me === me && g.opp === opp));
+  sheet(`<div class="lu-head">${luArt(me, "lu-a lg")}<div class="grow"><div class="muted small">MU</div><h2 style="margin:0">${esc(luN(me))} contre ${esc(luN(opp))}</h2><div class="small">${x.n ? `${wl(x.w, x.l)} en games` : '<span class="muted">pas de game</span>'}</div></div>${luArt(opp, "lu-a lg")}</div>
+    <div class="rates">${LU_TIERS.map(([t, n]) => `<button class="btn ${luCls(t)} ${v === t ? "on" : ""}" data-lact="rate" data-v="${t}">${luSign(t)}<span class="small">${n}</span></button>`).join("")}</div>
+    <div class="btns"><button class="btn" data-lact="rate" data-v="">Effacer</button><button class="btn" data-mu="${esc(luN(opp))}">📒 Fiche MU</button><button class="btn" data-lact="open-char" data-slug="${opp}">🥊 Ses coups</button></div>`);
+  LUC.rate = [me, opp];
+}
+function tlGet(id) { return C.get("tierlists", id); }
+function viewTierLists() {
+  const L = C.section("tierlists").map(([, v]) => v).filter(Boolean).sort((a, b) => (b.at || "").localeCompare(a.at || ""));
+  return `<div class="card">${L.map((l) => `<div class="row" data-lact="tl" data-id="${esc(l.id)}">${l.kind === "mu" ? luArt(l.char) : '<span class="lu-a"><i>🏷</i></span>'}<div class="grow"><div><b>${esc(l.name)}</b></div>
+      <div class="muted small">${l.kind === "mu" ? "MU chart · " : ""}${l.tiers.reduce((n, t) => n + t.ids.length, 0)} persos · ${l.tiers.length} rangs</div></div>›</div>`).join("") || '<div class="empty">Pas encore de tier list.</div>'}</div>
+    <div class="btns"><button class="btn" data-lact="tl-new" data-k="tier">＋ Tier list</button><button class="btn" data-lact="tl-new" data-k="mu">＋ MU chart</button></div>`;
+}
+const TLE = { id: "", sel: "", edit: false };
+function tlStore(L) { L.at = new Date().toISOString().slice(0, 19); C.set("tierlists", L.id, L); }
+function sheetTier(id) {
+  const L = tlGet(id); if (!L) return closeSheet();
+  TLE.id = id;
+  const placed = new Set(L.tiers.flatMap((t) => t.ids));
+  const ch = (s) => `<button class="tl-c ${TLE.sel === s ? "sel" : ""}" data-lact="tl-c" data-slug="${s}">${luArt(s)}</button>`;
+  sheet(`<div class="lu-h"><h2 style="margin:0">${L.kind === "mu" ? "🧮" : "🏷"} ${esc(L.name)}</h2><button class="btn" data-lact="tl-edit" style="min-height:36px;padding:6px 10px">${TLE.edit ? "✓ Fini" : "✏ Modifier"}</button></div>
+    ${L.kind === "mu" ? `<div class="muted small">MU chart de ${esc(luN(L.char))}</div>` : ""}
+    ${TLE.edit ? `<div class="muted small" style="margin:6px 0">Touche un perso, puis un rang (ou « À placer » pour le retirer).</div>` : ""}
+    ${L.tiers.map((t, i) => `<div class="tl-r" data-lact="tl-row" data-i="${i}"><div class="tl-l" style="background:${esc(t.c)}">${esc(t.n)}${TLE.edit ? `<span class="tl-tools"><button data-lact="tl-ren" data-i="${i}">✏</button><button data-lact="tl-up" data-i="${i}">▲</button><button data-lact="tl-rm" data-i="${i}">✕</button></span>` : ""}</div>
+      <div class="tl-d">${t.ids.map(ch).join("")}</div></div>`).join("")}
+    ${TLE.edit ? `<button class="btn" data-lact="tl-add" style="width:100%;margin-top:6px">＋ un rang</button>
+      <h3 style="margin-top:12px">À placer</h3><input type="search" id="tl-pq" placeholder="Filtrer…" autocomplete="off" style="margin-bottom:6px"><div class="tl-pool" data-lact="tl-row" data-i="pool">${LU_ROSTER.map((r) => r[0]).filter((s) => !placed.has(s) && s !== L.char).map(ch).join("")}</div>` : ""}
+    <div class="btns">${L.kind === "mu" && TLE.edit ? `<button class="btn" data-lact="tl-apply">➜ Mes notes de MU</button>` : ""}<button class="btn danger" data-lact="tl-del">🗑</button><button class="btn" data-act="close">Fermer</button></div>`);
+  CUR = () => sheetTier(TLE.id);
+  const pq = $("#tl-pq"); if (pq) pq.oninput = () => { const n = luNorm(pq.value); $$("#sheet .tl-pool .tl-c").forEach((b) => { b.hidden = !!n && !luNorm(luN(b.dataset.slug)).includes(n); }); };
+}
+
+/* la vue de l'onglet : trois parties */
+const viewLineupV63 = viewLineup;
+function viewLineupAll() {
+  const seg = D.luSeg || "mine";
+  const head = `<div class="seg">${LU_SEGS.map(([k, n]) => `<button class="${seg === k ? "on" : ""}" data-lact="seg" data-k="${k}">${n}</button>`).join("")}</div>`;
+  return head + (seg === "chart" ? viewMuChart() : seg === "tiers" ? viewTierLists() : viewLineupV63());
+}
+TABS.mu = viewLineupAll;
+
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#find-char")) return sheetFind();
+  const el = e.target.closest("[data-lact]"); if (!el) return;
+  const a = el.dataset.lact;
+  if (["seg", "mc", "rate", "open-char", "cseg", "mcat", "form", "tl", "tl-new", "tl-edit", "tl-c", "tl-row", "tl-ren", "tl-up", "tl-rm", "tl-add", "tl-apply", "tl-del"].includes(a)) { e.preventDefault(); e.stopPropagation(); }
+  if (a === "seg") { D.luSeg = el.dataset.k; save(); return render(); }
+  if (a === "mc") return sheetRate(D.luMc, el.dataset.slug);
+  if (a === "rate") { const [me, o] = LUC.rate || []; if (me) C.set("mu_rate", `${me}|${o}`, el.dataset.v === "" ? null : +el.dataset.v); closeSheet(); return; }
+  if (a === "open-char") { try { localStorage.setItem("sigo.find.recent", JSON.stringify([el.dataset.slug, ...JSON.parse(localStorage.getItem("sigo.find.recent") || "[]").filter((x) => x !== el.dataset.slug)].slice(0, 8))); } catch (_) {} return sheetChar(el.dataset.slug, "moves"); }
+  if (a === "cseg") { LUC.seg = el.dataset.k; return sheetChar(LUC.slug); }
+  if (a === "mcat") { LUC.cat = el.dataset.k; return sheetChar(LUC.slug); }
+  if (a === "form") { LUC.page = el.dataset.p; return sheetChar(LUC.slug); }
+  if (a === "tl") { TLE.edit = false; TLE.sel = ""; return sheetTier(el.dataset.id); }
+  if (a === "tl-new") {
+    let char = "";
+    if (el.dataset.k === "mu") {
+      const nm = prompt("MU chart de quel perso ?", luN(luMine()[0]?.slug || "mario")); if (!nm) return;
+      char = luSlug(nm); if (!char) return toast("Perso inconnu.", true);
+    }
+    const id = "t" + Date.now().toString(36), k = el.dataset.k;
+    const L = { id, name: k === "mu" ? `MU chart ${luN(char)}` : "Ma tier list", kind: k, char, tiers: TLP[k].map(([n, c]) => ({ n, c, ids: [] })) };
+    if (k === "mu") { const by = Object.fromEntries(L.tiers.map((t, i) => [t.n.replace("+", ""), i])); C.section("mu_rate").forEach(([kk, v]) => { const [x, y] = kk.split("|"); if (x === char && by[String(v)] != null) L.tiers[by[String(v)]].ids.push(y); }); }
+    const nm = prompt("Nom de la liste ?", L.name); if (nm === null) return; L.name = nm.trim().slice(0, 80) || L.name;
+    tlStore(L); TLE.edit = true; TLE.sel = ""; render(); return sheetTier(id);
+  }
+  const L = tlGet(TLE.id);
+  if (!L) return;
+  if (a === "tl-edit") { TLE.edit = !TLE.edit; TLE.sel = ""; return sheetTier(L.id); }
+  if (a === "tl-c") {
+    if (!TLE.edit) return;
+    const s = el.dataset.slug, row = el.closest("[data-i]")?.dataset.i;
+    if (TLE.sel && TLE.sel !== s) { tlPlace(L, TLE.sel, row); return; }
+    TLE.sel = TLE.sel === s ? "" : s; return sheetTier(L.id);
+  }
+  if (a === "tl-row") { if (TLE.edit && TLE.sel) tlPlace(L, TLE.sel, el.dataset.i); return; }
+  if (a === "tl-ren") { const i = +el.dataset.i, n = prompt("Nom du rang ?", L.tiers[i].n); if (n !== null) { L.tiers[i].n = n.trim().slice(0, 24) || "?"; tlStore(L); } return sheetTier(L.id); }
+  if (a === "tl-up") { const i = +el.dataset.i; if (i > 0) { [L.tiers[i - 1], L.tiers[i]] = [L.tiers[i], L.tiers[i - 1]]; tlStore(L); } return sheetTier(L.id); }
+  if (a === "tl-rm") { if (L.tiers.length > 1) { L.tiers.splice(+el.dataset.i, 1); tlStore(L); } return sheetTier(L.id); }
+  if (a === "tl-add") { L.tiers.push({ n: "?", c: "#9e9e9e", ids: [] }); tlStore(L); return sheetTier(L.id); }
+  if (a === "tl-apply") {
+    if (!confirm(`Remplacer tes notes de MU de ${luN(L.char)} par cette MU chart ?`)) return;
+    C.section("mu_rate").filter(([k]) => k.startsWith(L.char + "|")).forEach(([k]) => C.set("mu_rate", k, null));
+    let n = 0; L.tiers.forEach((t) => { const v = parseInt(t.n, 10); if (!isNaN(v) && v >= -2 && v <= 2) t.ids.forEach((s) => { C.set("mu_rate", `${L.char}|${s}`, v); n++; }); });
+    toast(`🧮 ${n} notes de MU enregistrées.`); return;
+  }
+  if (a === "tl-del") { if (confirm(`Supprimer « ${L.name} » ?`)) { C.set("tierlists", L.id, null); closeSheet(); } return; }
+}, true);
+function tlPlace(L, s, to) {
+  L.tiers.forEach((t) => { t.ids = t.ids.filter((x) => x !== s); });
+  if (to !== "pool" && to != null) L.tiers[+to].ids.push(s);
+  TLE.sel = ""; tlStore(L); sheetTier(L.id);
+}
+document.addEventListener("change", (e) => { if (e.target.id === "lu-mc") { D.luMc = e.target.value; save(); render(); } });
 if (D.tab === "mu") render();
