@@ -16,6 +16,8 @@ const wPts = (u) => u?.points?.variants?.[0]?.cost || u?.points?.base || 0;
 const wHue = (f) => { let h = 0; for (const ch of String(f || "")) h = (h * 31 + ch.codePointAt(0)) % 360; return h; };
 const wBadge = (f) => `<span class="wfb" style="--fh:${wHue(f)}">${esc(initials(f || "?"))}</span>`;
 const wCfg = () => E.get("wh:cfg") || {};
+const wArt = (k) => D.esp.flat["wh:art:" + k] || D.espRO.art?.[k] || "";
+const wUimg = (k) => D.esp.flat["wh:uimg:" + k] || D.espRO.uimg?.[k] || "";
 
 /* ------------------------------------------------------------ les fiches du Hub (wh-units-N.enc.json) */
 async function whUnitsLoad() {
@@ -66,7 +68,7 @@ function wOwn(u, coll) {
   const n = (st) => mine.reduce((a, x) => a + st.reduce((b, s) => b + (x.counts?.[s] || 0), 0), 0), p = n(["peint", "socle"]), all = n(WHS.map((s) => s[0]));
   return !all ? '<span class="wown ko">✗ manque</span>' : p ? '<span class="wown ok">✓ peinte</span>' : all - n(["grappe"]) ? '<span class="wown mid">◐ montée</span>' : '<span class="wown low">○ grappe</span>';
 }
-const wPic = (name, unitId) => { const coll = E.list("wh:coll:"), c = coll.find((x) => unitId && x.unit_id === unitId && x.photos?.length); return D.espRO.uimg?.[wKey(name)] || c?.photos?.[0] || ""; };
+const wPic = (name, unitId) => { const coll = E.list("wh:coll:"), c = coll.find((x) => unitId && x.unit_id === unitId && x.photos?.length); return wUimg(wKey(name)) || c?.photos?.[0] || ""; };
 const wThumb = (name, fac, unitId, cls = "wth") => { const p = wPic(name, unitId); return `<span class="${cls}" style="--fh:${wHue(fac)}" ${p ? `data-eimg="${esc(p)}"` : ""}>${esc(initials(name))}</span>`; };
 
 /* ------------------------------------------------------------ 📋 les listes */
@@ -77,7 +79,7 @@ function viewWLists() {
   if (L) return viewWList(L);
   const warn = D.espErr ? `<div class="card err small">⚠ ${esc(D.espErr)}</div>` : D.espNone ? '<div class="card small muted">☁ Dans le Hub, lance une fois la synchro entre PC (☁ en bas à gauche) : c\'est elle qui apporte tes listes, ta collection et tes parties.</div>' : "";
   return `${warn}<div class="lu-h"><h2>📋 Listes d'armée</h2><button class="btn" data-wact="list-new">＋ Liste</button></div>
-    ${lists.map((l) => { const t = wTotal(l), art = D.espRO.art?.["list:" + l.id] || D.espRO.art?.["faction:" + wKey(l.faction)];
+    ${lists.map((l) => { const t = wTotal(l), art = wArt("list:" + l.id) || wArt("faction:" + wKey(l.faction));
       return `<div class="card wl-c" data-wlist="${esc(l.id)}" style="--fh:${wHue(l.faction)}">${art ? `<div class="wl-art" data-eimg="${esc(art)}"></div>` : ""}<div class="row" style="border:none;padding:0">${wBadge(l.faction)}
         <div class="grow"><div><b>${esc(l.name)}</b></div><div class="muted small">${esc(l.faction)}${l.detachment ? " · " + esc(l.detachment) : ""} · ${l.units.length} unités</div></div>
         <div style="text-align:right"><b class="${t > l.target ? "l" : ""}">${t}</b><div class="muted small">/ ${l.target}</div></div></div>
@@ -85,7 +87,7 @@ function viewWLists() {
 }
 function viewWList(L) {
   const refs = wRefIn(L.faction), ref = (u) => refs.get(u.unit_id) || refs.get(wKey(u.name)), coll = E.list("wh:coll:"), checks = wChecks(L, refs), t = wTotal(L);
-  const art = D.espRO.art?.["list:" + L.id] || D.espRO.art?.["faction:" + wKey(L.faction)];
+  const art = wArt("list:" + L.id) || wArt("faction:" + wKey(L.faction));
   const row = (u, sub) => { const r = ref(u), gear = Object.entries(u.gear || {}).map(([w, n]) => `${n}× ${w}`).join(" · ");
     return `<div class="row wu ${sub ? "sub" : ""} ${u.warlord ? "lord" : ""}" data-wunit="${esc(u.uid)}">${wThumb(u.name, L.faction, u.unit_id)}
       <div class="grow"><div><b>${u.warlord ? "★ " : ""}${sub ? "👑 " : ""}${esc(u.name)}</b></div><div class="muted small">${esc(u.variant && u.variant !== "—" ? u.variant : "")}${wModels(u, r) ? ` · ${wModels(u, r)} fig.` : ""}${u.enh ? ` · ✨ ${esc(u.enh)}` : ""}</div>
@@ -95,7 +97,7 @@ function viewWList(L) {
     return ls.length ? `<div class="wgroup"><div class="small wgroup-h">🔗 Unité menée · ${ls.reduce((a, x) => a + x.cost + (x.enh_cost || 0), u.cost + (u.enh_cost || 0))} pts</div>${row(u)}${ls.map((x) => row(x, true)).join("")}</div>` : row(u); }).join("");
   return `<button class="btn wback" data-wact="lists">← Listes</button>
     <div class="card whero" style="--fh:${wHue(L.faction)}">${art ? `<div class="wl-art big" data-eimg="${esc(art)}"></div>` : ""}<div class="row" style="border:none;padding:0">${wBadge(L.faction)}<div class="grow"><div><b>${esc(L.name)}</b></div>
-      <div class="muted small">${esc(L.faction)}${L.detachment ? " · " + esc(L.detachment) : ""}</div></div><button class="btn" data-wact="list-edit">✏</button></div>
+      <div class="muted small">${esc(L.faction)}${L.detachment ? " · " + esc(L.detachment) : ""}</div></div><label class="btn wpic-btn" title="Une image pour cette liste">🖼<input type="file" accept="image/*" id="wl-img" hidden></label><button class="btn" data-wact="list-edit">✏</button></div>
       <div class="wtot ${t > L.target ? "over" : ""}"><b>${t}</b> / ${L.target} pts · ${t > L.target ? `⚠ ${t - L.target} de trop` : `reste ${L.target - t}`}</div><div class="bar"><span style="width:${Math.min(100, (100 * t) / (L.target || 1))}%"></span></div></div>
     ${L.units.length ? `<div class="card wchecks ${checks.some((c) => c[0] === "ko") ? "ko" : checks.length ? "mid" : "ok"}">${checks.length ? checks.map(([k, x]) => `<div class="small ${k}">${k === "ko" ? "✗" : "!"} ${esc(x)}</div>`).join("") : '<div class="small">✅ La liste respecte les règles de base.</div>'}</div>` : ""}
     <div class="card">${body || '<div class="empty">Liste vide.</div>'}</div>
@@ -181,7 +183,7 @@ function sheetWSheet(fac, id) {
     ${wt(u.ranged, false)}${wt(u.melee, true)}
     ${u.abilities?.length ? `<h3>✨ Aptitudes</h3><div class="card">${u.abilities.map((a) => `<p class="small"><b>${esc(a.name)}</b>${a.description ? " — " + esc(a.description.replace(/\*\*/g, "")) : ""}</p>`).join("")}</div>` : ""}
     ${u.keywords?.length ? `<div class="chips wrap">${u.keywords.map((k) => `<span class="chip">${esc(k)}</span>`).join("")}</div>` : ""}
-    <div class="btns"><button class="btn" data-act="close">Fermer</button></div>`);
+    <div class="btns"><label class="btn">🖼 ${p ? "Changer l'image" : "Ajouter une image"}<input type="file" accept="image/*" id="ws-img" data-key="${esc(wKey(u.name))}" data-fac="${esc(fac)}" data-id="${esc(id)}" hidden></label><button class="btn" data-act="close">Fermer</button></div>`);
 }
 
 /* ------------------------------------------------------------ 📦 la collection */
@@ -199,7 +201,8 @@ function viewWColl() {
 function sheetWColl(id) {
   const x = E.get("wh:coll:" + id); if (!x) return;
   sheet(`<h2>📦 ${esc(x.name)}</h2><div class="muted small">${esc(x.project || x.faction || "")}</div>
-    ${x.photos?.length ? `<div class="wphotos">${x.photos.map((p) => `<span class="wph" data-eimg="${esc(p)}"></span>`).join("")}</div>` : ""}
+    <div class="wphotos">${(x.photos || []).map((p) => `<span class="wph" data-eimg="${esc(p)}"><button class="wph-x" data-wphrm="${esc(p)}" data-id="${esc(id)}" aria-label="Retirer">✕</button></span>`).join("")}
+      <label class="wph add" title="Prendre ou choisir une photo">📷<span class="small">Ajouter</span><input type="file" accept="image/*" capture="environment" id="wc-file" data-id="${esc(id)}" hidden></label></div>
     <div class="card">${WHS.map(([k, n]) => `<div class="row wlive-k"><span class="wst-dot wst-${k}"></span><div class="grow">${n}</div><div class="wstep"><button class="btn" data-wcs="${k}" data-d="-1">−</button><b data-wcv="${k}">${x.counts?.[k] || 0}</b><button class="btn" data-wcs="${k}" data-d="1">＋</button></div></div>`).join("")}
       <div class="muted small">Une figurine passe à l'état suivant : − sur l'un, ＋ sur l'autre.</div></div>
     <h3>🎨 Recette de peinture</h3><textarea id="wc-r" rows="4">${esc(x.recipe || "")}</textarea><h3>Notes</h3><textarea id="wc-n" rows="2">${esc(x.notes || "")}</textarea>
@@ -213,7 +216,22 @@ document.addEventListener("input", (e) => {
   if (e.target.id === "ws-q") { WHP.q = e.target.value; const r = $("#ws-list"); if (r) { const pos = e.target.selectionStart; render(); const i = $("#ws-q"); i.focus(); i.setSelectionRange(pos, pos); } }
   if (e.target.id === "wa-q") { const L = wCurList(); if (L) $("#wa-res").innerHTML = wAddRows(wUnits(L.faction), e.target.value); }
 });
-document.addEventListener("change", (e) => {
+document.addEventListener("change", async (e) => {
+  const t = e.target;
+  if ((t.id === "wc-file" || t.id === "wl-img" || t.id === "ws-img") && t.files?.length) {
+    if (!D.cfg.pass) return toast("Règle d'abord la synchro (⚙) : la photo est chiffrée avec ton mot de passe.", true);
+    toast("📷 Photo…");
+    try {
+      if (t.id === "wc-file") {
+        const x = E.get("wh:coll:" + t.dataset.id); if (!x) return;
+        for (const f of t.files) x.photos = [...(x.photos || []), await espAddPhoto(f)].slice(-20);
+        E.set("wh:coll:" + x.id, x); sheetWColl(x.id);
+      } else if (t.id === "wl-img") { E.set("wh:art:list:" + WHP.list, await espAddPhoto(t.files[0], 1400)); render(); }
+      else { E.set("wh:uimg:" + t.dataset.key, await espAddPhoto(t.files[0], 1400)); sheetWSheet(t.dataset.fac, t.dataset.id); }
+      toast("📷 Ajoutée : elle part vers tes PC à la synchro");
+    } catch (err) { toast("Photo illisible : " + err.message, true); }
+    return;
+  }
   if (e.target.id === "wu-v") { const o = e.target.selectedOptions[0]; $("#wu-c").value = o.dataset.cost; if (o.dataset.models) $("#wu-m").value = o.dataset.models; }
   if (e.target.id === "wv-no") { const lv = E.get("wh:live"); if (lv) E.set("wh:live", { ...lv, notes: e.target.value }); }
 });
@@ -229,6 +247,8 @@ document.addEventListener("click", (e) => {
     L.units.push({ uid: wid("l"), unit_id: r.id, name: r.name, variant: v0?.name || "", cost: v0?.cost || wPts(r), enh: "", enh_cost: 0, warlord: false, notes: "", models: v0?.models || (r.type === "model" ? 1 : 0) });
     wSaveList(L); closeSheet(); return toast(`＋ ${r.name}`); }
   const st = t.closest("[data-wst]"); if (st) { const b = $(`[data-wg="${st.dataset.i}"]`); b.textContent = Math.max(0, Math.min(50, +b.textContent + +st.dataset.wst)); return; }
+  const rm = t.closest("[data-wphrm]");
+  if (rm) { e.stopPropagation(); if (!confirm("Retirer cette photo (aussi sur tes PC) ?")) return; const x = E.get("wh:coll:" + rm.dataset.id); x.photos = (x.photos || []).filter((p) => p !== rm.dataset.wphrm); E.set("wh:coll:" + x.id, x); E.set("file:warhammer/photos/" + rm.dataset.wphrm, null); return sheetWColl(x.id); }
   const cs = t.closest("[data-wcs]"); if (cs) { const b = $(`[data-wcv="${cs.dataset.wcs}"]`); b.textContent = Math.max(0, Math.min(999, +b.textContent + +cs.dataset.d)); return; }
   const tn = t.closest("[data-wturn]"); if (tn) { const lv = E.get("wh:live"), n = +tn.dataset.wturn, rounds = [...lv.rounds]; while (rounds.length < n) rounds.push({ me: 0, opp: 0, cp_me: 0, cp_opp: 0 }); E.set("wh:live", { ...lv, turn: n, rounds }); return render(); }
   const lvb = t.closest("[data-wlv]");
