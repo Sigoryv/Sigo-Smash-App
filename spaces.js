@@ -57,7 +57,7 @@ function closeSheetQuiet() { $("#sheet-back").hidden = true; }
 
 /* ------------------------------------------------------------ 🗂 les données des espaces (à plat, datées, comme sur les PC) */
 const ESP_DOC = "pc/espaces.enc.json";
-const espIn = (k) => /^(wh:(coll|list|game|live|paint|cfg)(:|$)|ch:(cfg|learn|rep)(:|$))/.test(k);
+const espIn = (k) => /^(wh:(coll|list|game|live|paint|cfg|art|uimg)(:|$)|ch:(cfg|learn|rep)(:|$)|file:warhammer\/photos\/)/.test(k);     // (v78 : + tes images Warhammer, ajoutables d'ici)
 const E = {
   get: (k) => (D.esp.flat[k] === undefined ? undefined : structuredClone(D.esp.flat[k])),     // (une copie : la modifier ne change rien tant qu'on ne fait pas E.set)
   set(k, v) {
@@ -80,6 +80,7 @@ async function ghGetBig(name, binary) {
 async function syncSpaces() {
   let got = 0, sent = 0;
   if (!D.hubSpaces) { D.espNone = true; save(); return { got: 0, sent: 0, none: true }; }     // (la synchro entre PC n'a jamais tourné : pas de document à lire)
+  await espUpload();
   for (let attempt = 0; attempt < 3; attempt++) {
     const { raw, sha } = await ghGetBig(ESP_DOC);
     if (!raw) { D.espNone = true; save(); return { got: 0, sent: 0, none: true }; }        // (la synchro entre PC n'est pas encore lancée dans le Hub)
@@ -93,6 +94,7 @@ async function syncSpaces() {
       uimg: Object.fromEntries(Object.entries(out).filter(([k]) => k.startsWith("wh:uimg:")).map(([k, v]) => [k.slice(8), v])),
       art: Object.fromEntries(Object.entries(out).filter(([k]) => k.startsWith("wh:art:")).map(([k, v]) => [k.slice(7), v])) };
     save();
+    if (typeof chAnStore === "function") await chAnStore(Object.fromEntries(Object.entries(out).filter(([k]) => k.startsWith("ch:an:")).map(([k, v]) => [k.slice(6), v])));   // (v79 : les analyses du Hub, à part)
     sent = Object.keys(doc).filter((k) => !same(remote[k], doc[k])).length;
     if (!sent) break;
     const r = await ghPut(ESP_DOC, await encrypt({ v: 1, entries: doc }), sha, "Espaces (depuis le téléphone)");
@@ -119,7 +121,7 @@ async function decBytes(blob) {
 }
 /** l'adresse (blob:) d'une photo du Hub, par son nom de fichier ; "" si elle n'est pas (encore) là */
 async function espImg(name) {
-  const h = D.espRO.files?.[name]; if (!h) return "";
+  const h = D.esp.flat["file:warhammer/photos/" + name]?.h || D.espRO.files?.[name]; if (!h) return "";
   if (ESPI.urls.has(h)) return ESPI.urls.get(h);
   if (!ESPI.busy.has(h)) ESPI.busy.set(h, (async () => {
     const ext = (name.split(".").pop() || "png").replace("jpg", "jpeg"), type = "image/" + ext;
@@ -140,3 +142,32 @@ function espHydrate(root) {
 }
 const sheet0 = sheet;
 sheet = function (html) { sheet0(html); espHydrate($("#sheet")); };
+
+/* ------------------------------------------------------------ 📷 (v78) une photo prise ici : réduite, chiffrée, envoyée une fois */
+async function encBytes(raw) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await aesKey(D.cfg.pass, salt, 150000), raw));
+  const out = new Uint8Array(5 + 16 + 12 + ct.length); out.set(enc.encode("SIGO1")); out.set(salt, 5); out.set(iv, 21); out.set(ct, 33); return out;
+}
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+/** une image du téléphone → le nom de fichier de la photo (gardée ici, envoyée à la prochaine synchro) */
+async function espAddPhoto(file, max = 1600) {
+  const bmp = await createImageBitmap(file), k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const cv = Object.assign(document.createElement("canvas"), { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) });
+  cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
+  const blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.85)), raw = new Uint8Array(await blob.arrayBuffer());
+  const h = hex(await crypto.subtle.digest("SHA-256", raw)), name = `tel-${Date.now()}-${h.slice(0, 6)}.jpg`;
+  try { if (self.caches) await (await caches.open("sigo-esp-img")).put("/" + h, new Response(blob, { headers: { "Content-Type": "image/jpeg" } })); } catch (_) {}
+  ESPI.urls.set(h, URL.createObjectURL(blob));
+  D.espUp = [...(D.espUp || []).filter((x) => x !== h), h];
+  E.set("file:warhammer/photos/" + name, { h, n: raw.length });
+  return name;
+}
+async function espUpload() {
+  for (const h of [...(D.espUp || [])]) {
+    let blob = null; try { blob = await (await (await caches.open("sigo-esp-img")).match("/" + h))?.blob(); } catch (_) {}
+    if (!blob) { D.espUp = D.espUp.filter((x) => x !== h); continue; }
+    const r = await gh("PUT", `pc/f/${h}.enc`, { message: "Image (depuis le téléphone)", content: b64(await encBytes(new Uint8Array(await blob.arrayBuffer()))) });
+    if (r) { D.espUp = D.espUp.filter((x) => x !== h); save(); }          // (déjà là : 409/422 → { conflict } : c'est bon aussi)
+  }
+}
