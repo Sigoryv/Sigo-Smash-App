@@ -110,7 +110,7 @@ const Q_UP = `query Up($slug: String!) { user(slug: $slug) { player { id }
 const Q_ENT = `query Ent($id: ID!, $page: Int!) { event(id: $id) { id entrants(query: {page: $page, perPage: 100}) { pageInfo { totalPages }
   nodes { id name initialSeedNum participants { player { id gamerTag prefix } } } } } }`;
 const Q_RUN = `query Run($id: ID!, $ent: ID!) { event(id: $id) { id state sets(page: 1, perPage: 30, filters: {entrantIds: [$ent]}) { nodes {
-  id state fullRoundText round winnerId displayScore completedAt startedAt
+  id state fullRoundText round winnerId displayScore completedAt startedAt phaseGroup { phase { bracketType } }
   slots { prereqId prereqType entrant { id name initialSeedNum participants { player { id gamerTag } } } standing { stats { score { value } } } } } } } }`;
 /* 🔥 v57 : le match qui désignera ton prochain adversaire (« tu attends le vainqueur de… ») */
 const Q_FEED = `query Feed($id: ID!) { set(id: $id) { id state fullRoundText slots { entrant { name } standing { stats { score { value } } } } } }`;
@@ -267,7 +267,7 @@ async function shobuLive(ev) {
 
 /* ------------------------------------------------------------ 🏆 le bracket d'une épreuve (v42 : le même que dans le Hub) */
 const Q_BR = `query Br($id: ID!, $page: Int!, $per: Int!) { event(id: $id) { id name numEntrants state tournament { name }
-  phases { id name phaseOrder }
+  phases { id name phaseOrder bracketType numSeeds groupCount }
   sets(page: $page, perPage: $per, sortType: ROUND) { pageInfo { totalPages } nodes { id round fullRoundText identifier state winnerId displayScore
     phaseGroup { id displayIdentifier phase { id } }
     slots { prereqId prereqType entrant { id name initialSeedNum participants { player { id } } } standing { stats { score { value } } } }
@@ -275,11 +275,12 @@ const Q_BR = `query Br($id: ID!, $page: Int!, $per: Int!) { event(id: $id) { id 
 let BK = null;
 async function loadBracket(eid) {
   if (String(eid).startsWith("shobu:")) return shobuBracket(eid);
+  let q = Q_BR;
   for (const per of [16, 8, 4]) {
     try {
       const sets = []; let ev = null, page = 1, total = 1;
       while (page <= Math.min(total, Math.ceil(1800 / per))) {
-        const d = (await gql(Q_BR, { id: eid, page, per })).event; if (!d) throw new Error("Épreuve introuvable sur start.gg.");
+        const d = (await gql(q, { id: eid, page, per })).event; if (!d) throw new Error("Épreuve introuvable sur start.gg.");
         ev = ev || d; total = d.sets?.pageInfo?.totalPages || 1;
         for (const n of d.sets?.nodes || []) {
           const chars = {};
@@ -293,10 +294,12 @@ async function loadBracket(eid) {
       }
       const phases = (ev.phases || []).slice().sort((a, b) => (a.phaseOrder || 0) - (b.phaseOrder || 0)).map((p) => {
         const gs = new Map(); for (const st of sets.filter((x) => x.phase === String(p.id))) { if (!gs.has(st.group)) gs.set(st.group, { id: st.group, name: st.gname, sets: [] }); gs.get(st.group).sets.push(st); }
-        return { id: String(p.id), name: p.name, groups: [...gs.values()].sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name)) };
+        return { id: String(p.id), name: p.name, type: p.bracketType || "", seeds: p.numSeeds || 0, ngroups: p.groupCount || 0, groups: [...gs.values()].sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name)) };
       }).filter((p) => p.groups.length);
       return { eid, name: ev.name, tournament: ev.tournament?.name || "", state: ev.state === "COMPLETED" ? "done" : ev.state === "ACTIVE" ? "live" : "next", me: String(D.player?.id || ""), phases, at: now() };
-    } catch (e) { if (!/complexity/i.test(e.message) || per === 4) throw e; }
+    } catch (e) {
+      if (/numSeeds|groupCount/i.test(e.message) && q === Q_BR) { q = Q_BR.replace(" numSeeds groupCount", ""); continue; }   // (🔁 v84 : si start.gg refuse ces champs, sans eux)
+      if (!/complexity/i.test(e.message) || per === 4) throw e; }
   }
 }
 async function shobuBracket(eid) {
@@ -310,7 +313,7 @@ async function shobuBracket(eid) {
     const w = (x.slots || []).findIndex((y) => y?.isWinner), st = String(x.status || "").toUpperCase();
     return { id: String(x.id), round: rd(x.roundName), label: x.roundName || "", ident: "", order: x.number || 0, state: st === "COMPLETED" ? "done" : st.startsWith("IN") || st === "ONGOING" || st === "STARTED" ? "live" : "next", winner: w >= 0 && slots[w] ? slots[w].id : "", chars: {}, slots };
   });
-  return { eid, name: d.event?.name || "Bracket", tournament: "", state: sets.length && sets.every((x) => x.state === "done") ? "done" : "live", me: me ? "shobu:" + me : "", phases: sets.length ? [{ id: "", name: "Bracket", groups: [{ id: "", name: "", sets }] }] : [], at: now() };
+  return { eid, name: d.event?.name || "Bracket", tournament: "", state: sets.length && sets.every((x) => x.state === "done") ? "done" : "live", me: me ? "shobu:" + me : "", phases: sets.length ? [{ id: "", name: "Bracket", type: "", groups: [{ id: "", name: "", sets }] }] : [], at: now() };
 }
 /* 📡 en direct (v44) : tant que le bracket est ouvert et le tournoi en cours, il se relit seul (60 s, ou dès que
    l'appli revient au premier plan) sans perdre la phase, la poule, le joueur suivi ni la position ; les sets
@@ -325,15 +328,15 @@ async function sheetBracket(eid, title) {
   await refreshBracket(false);
 }
 const bkFocus = (r) => BK.hl ? (x) => x.id === BK.hl : (x) => isMeBk(x, r);
-const bkAll = (r) => r.phases.flatMap((p) => p.groups.flatMap((g) => g.sets.map((s) => ({ ...s, pname: p.name, gid: g.id, pid0: p.id }))));
+const bkAll = (r) => r.phases.flatMap((p) => { const pool = bkpIsPool(p), pk = bkpKind(p); return p.groups.flatMap((g) => g.sets.map((s) => ({ ...s, pname: p.name, gid: g.id, pid0: p.id, pool, pk }))); });
 function bkStatus(r) {          // (où en est le joueur suivi)
   const f = bkFocus(r), mine = bkAll(r).filter((s) => s.slots.some((x) => x && f(x)));
   if (!mine.length) return null;
   const who = mine[0].slots.find((x) => x && f(x)), opp = (s) => s.slots.find((x) => x && !f(x));
   const live = mine.find((s) => s.state === "live"), next = mine.filter((s) => s.state === "next").sort((a, b) => !!opp(b) - !!opp(a) || Math.abs(a.round) - Math.abs(b.round))[0];
-  const done = mine.filter((s) => s.state === "done"), lost = done.filter((s) => s.winner && s.winner !== who.id);
-  const dbl = bkAll(r).some((s) => s.round < 0);                       // (double élimination : il faut perdre en losers, ou deux fois)
-  const out = !live && !next && (lost.some((s) => s.round < 0) || lost.length >= 2 || (lost.length > 0 && !dbl));
+  const done = mine.filter((s) => s.state === "done"), lost = done.filter((s) => s.winner && s.winner !== who.id), lostE = lost.filter((s) => !s.pool);
+  const dbl = bkAll(r).some((s) => s.round < 0 && !s.pool);            // (double élimination : il faut perdre en losers, ou deux fois ; 🔁 v84 : une défaite de poule n'élimine pas)
+  const out = !live && !next && (lostE.some((s) => s.round < 0) || lostE.length >= 2 || (lostE.length > 0 && !dbl) || (r.state === "done" && mine.every((s) => s.pool)));
   return { who, set: live || next || null, kind: live ? "live" : next ? "next" : out ? "out" : done.length ? "wait" : "none", opp: (live || next) ? opp(live || next) : null, w: done.length - lost.length, l: lost.length };
 }
 const bkKey = (st) => st ? `${st.kind}:${st.set?.id || ""}:${st.opp?.id || ""}` : "";
@@ -349,7 +352,7 @@ async function refreshBracket(auto) {
     const st = bkStatus(r);
     if (old && before !== null && bkKey(st) !== before && st) {
       const nm = BK.hl ? st.who.name : "Toi", o = st.opp?.name;
-      const msg = st.kind === "live" ? `${nm} : set lancé${o ? " contre " + o : ""} (${bkLab(st.set.label)})` : st.kind === "next" ? (o ? `${nm} : prochain adversaire ${o} (${bkLab(st.set.label)})` : `${nm} : en attente du prochain set`)
+      const msg = st.kind === "live" ? `${nm} : ${st.set.pool ? "match de poule lancé" : "set lancé"}${o ? " contre " + o : ""} (${bkLab(st.set.label)})` : st.kind === "next" ? (o ? `${nm} : prochain adversaire ${o} (${bkLab(st.set.label)})` : `${nm} : en attente du prochain set`)
         : st.kind === "out" ? `${nm} : éliminé·e (${st.w}–${st.l} en sets)` : `${nm} : set terminé`;
       alertMe(r.name, msg);
     }
@@ -376,8 +379,8 @@ function bkBanner(r) {
   const sc = (x) => x?.score == null ? "" : x.score;
   const go = s ? ` <button class="btn small" data-act="bk-go" data-id="${esc(s.id)}">🎯 Voir</button>` : "";
   const scoutB = o && /^\d+$/.test(o.pid || "") ? `<button class="btn small" data-scout="${esc(o.pid)}" data-name="${esc(o.name)}">🔭 Scouter</button>` : "";
-  const body = st.kind === "live" ? `<b>🔴 Set en cours</b> · ${esc(bkLab(s.label))}<div class="bk-vs">${nm} <b>${sc(s.slots.find((x) => x && x !== o))}–${sc(o)}</b> ${esc(o?.name || "?")}</div>`
-    : st.kind === "next" ? `<b>⏭ Prochain set</b> · ${esc(bkLab(s.label))}${s.pname && r.phases.length > 1 ? " · " + esc(s.pname) : ""}<div class="bk-vs">${nm} vs ${o ? `<b>${esc(o.name)}</b>${o.seed ? ` <span class="muted">(seed ${o.seed})</span>` : ""}` : '<span class="muted">adversaire pas encore connu</span>'}</div>`
+  const body = st.kind === "live" ? `<b>🔴 ${s.pk === "swiss" ? "Ronde suisse en cours" : s.pool ? "Match de poule en cours" : "Set en cours"}</b> · ${esc(bkLab(s.label))}<div class="bk-vs">${nm} <b>${sc(s.slots.find((x) => x && x !== o))}–${sc(o)}</b> ${esc(o?.name || "?")}</div>`
+    : st.kind === "next" ? `<b>⏭ ${s.pk === "swiss" ? "Prochaine ronde suisse" : s.pool ? "Prochain match de poule" : "Prochain set"}</b> · ${esc(bkLab(s.label))}${s.pname && r.phases.length > 1 ? " · " + esc(s.pname) : ""}<div class="bk-vs">${nm} vs ${o ? `<b>${esc(o.name)}</b>${o.seed ? ` <span class="muted">(seed ${o.seed})</span>` : ""}` : '<span class="muted">adversaire pas encore connu</span>'}</div>`
     : st.kind === "out" ? `<b>${BK.hl ? "Éliminé·e" : "Run terminée"}</b> · ${st.w}–${st.l} en sets` : st.kind === "wait" ? `<b>⏳ En attente</b> · ${st.w}–${st.l} en sets pour l'instant` : `<b>${nm}</b> : pas encore de set`;
   return `<div class="card bk-live ${st.kind}">${BK.hl ? `<div class="muted small">⭐ Suivi : ${esc(st.who.name)} · <a href="#" data-act="bk-me">revenir à moi</a></div>` : ""}${body}${go || scoutB ? `<div class="btns" style="margin-top:6px">${go}${scoutB}</div>` : ""}</div>`;
 }
@@ -436,15 +439,24 @@ function drawBracket() {
       const done = s.state === "done", win = done && s.winner === x.id, lose = done && s.winner && !win, sc = x.score == null ? (win ? "✓" : "") : x.score < 0 ? "DQ" : x.score;
       return `<div class="bk-p ${win ? "win" : ""} ${lose ? "lose" : ""} ${isMeBk(x, r) ? "me" : ""}" data-bkp="${esc(x.id)}"><span class="bk-seed">${x.seed ?? ""}</span><span class="bk-name">${esc(x.name)}</span><span class="bk-ch">${(s.chars[x.id] || []).slice(0, 2).map((c) => ci(c, "xs")).join("")}</span><b class="bk-sc">${sc}</b></div>`; };
     return `<div class="bk-set ${me ? "me" : ""} ${on ? "on" : ""} ${s.state} ${BK.hl && !on ? "dim" : ""} ${BK.fresh?.has(s.id) ? "fresh" : ""}" data-bks="${esc(s.id)}">${s.state === "live" ? '<span class="bk-dot">● en cours</span>' : ""}${row(s.slots[0])}${row(s.slots[1])}</div>`; };
-  const w = side(true), l = side(false), st = { done: "terminé", live: "en cours", next: "à venir" }[r.state];
+  const pool = ph && g && bkpIsPool(ph), kind = pool ? bkpKind(ph) : "";
+  const w = pool ? "" : side(true), l = pool ? "" : side(false), st = { done: "terminé", live: "en cours", next: "à venir" }[r.state];
+  let pv = "";
+  if (pool) {                                   // 🔁 v84 : poule / suisse : ton point, le classement, la grille, puis les sets par tour
+    const m = new Map(); for (const s of g.sets) { const k = Math.abs(s.round) || 1; if (!m.has(k)) m.set(k, []); m.get(k).push(s); }
+    const cols = [...m.keys()].sort((a, b) => a - b).map((k) => col(bkpRoundLabel(kind, k), m.get(k).sort(cmp))).join("");
+    pv = `<div class="card bkp-wrap">${bkpHTML(r, ph, g, { isMe: (x) => isMeBk(x, r), hl: BK.hl, kind })}</div>`
+      + (kind === "rr" ? `<details class="bkp-sets" ${BK.poolOpen ? "open" : ""}><summary>Les sets, tour par tour</summary><div class="bk-wrap"><div class="bk-cols">${cols}</div></div></details>`
+        : `<div class="bk-sname">Rondes</div><div class="bk-wrap"><div class="bk-cols">${cols}</div></div>`);
+  }
   sheet(`<h2 style="margin-bottom:2px">🏆 ${esc(r.name)}</h2><div class="muted small">${esc(r.tournament || BK.title)} · <b>${st}</b> · lu ${ago(new Date(r.at * 1000).toISOString())} · <a href="#" data-act="bk-refresh">actualiser</a></div>
     ${r.state !== "done" ? `<div class="bk-direct small"><button class="stage ${BK.live ? "on" : ""}" data-act="bk-live">📡 Direct ${BK.live ? "activé" : "en pause"}</button> <span class="muted" id="bk-cd">${BK.busy ? "lecture…" : BK.live ? "" : "en pause"}</span></div>` : ""}
     ${bkBanner(r)}
-    ${r.phases.length > 1 ? `<div class="chips">${r.phases.map((p) => `<button class="stage ${p.id === ph.id ? "on" : ""}" data-act="bk-ph" data-id="${esc(p.id)}">${esc(p.name)}${p.groups.some(meIn) ? " ★" : ""}</button>`).join("")}</div>` : ""}
+    ${r.phases.length > 1 || pool ? `<div class="chips">${r.phases.map((p) => `<button class="stage ${p.id === ph.id ? "on" : ""}" data-act="bk-ph" data-id="${esc(p.id)}">${esc(p.name)}${bkpPill(p) ? ` <span class="bkp-pill ${bkpKind(p)}">${bkpPill(p)}</span>` : ""}${p.groups.some(meIn) ? " ★" : ""}</button>`).join("")}</div>` : ""}
     ${ph && ph.groups.length > 1 ? `<div class="chips">${ph.groups.map((x) => `<button class="stage ${x.id === g.id ? "on" : ""}" data-act="bk-g" data-id="${esc(x.id)}">${esc(x.name || "Poule")}${meIn(x) ? " ★" : ""}</button>`).join("")}</div>` : ""}
     ${w || l ? `<div class="bk-tools"><button class="btn small" data-act="bk-mine" ${bkTarget(r) ? "" : "disabled"}>🎯 ${BK.hl ? "Suivi" : "Moi"}</button><span class="grow"></span>
       <button class="btn small" data-act="bk-z" data-z="-1" aria-label="Dézoomer">－</button><span class="bk-zv muted small" id="bk-zv">${Math.round((BK.z || 1) * 100)} %</span><button class="btn small" data-act="bk-z" data-z="1" aria-label="Zoomer">＋</button><button class="btn small" data-act="bk-fit">⤢ Tout voir</button></div>` : ""}
-    <div class="bk-wrap"><div class="bk-zoom" style="zoom:${BK.z || 1}">${w ? `<div class="bk-sname">Winners</div><div class="bk-cols">${w}</div>` : ""}${l ? `<div class="bk-sname">Losers</div><div class="bk-cols">${l}</div>` : ""}</div>${!w && !l ? '<div class="muted small">Pas encore de sets.</div>' : ""}</div>
+    ${pv}${pool ? "" : `<div class="bk-wrap"><div class="bk-zoom" style="zoom:${BK.z || 1}">${w ? `<div class="bk-sname">Winners</div><div class="bk-cols">${w}</div>` : ""}${l ? `<div class="bk-sname">Losers</div><div class="bk-cols">${l}</div>` : ""}</div>${!w && !l ? '<div class="muted small">Pas encore de sets.</div>' : ""}</div>`}
     <div class="muted small">Touche un joueur pour suivre son parcours. Glisse pour te déplacer, pince pour zoomer.</div><div class="btns">${closeBtn()}</div>`);
   bkPinch();
 }
@@ -457,10 +469,13 @@ function bkTarget(r) {
 function bkCenter(id, smooth = true) {
   const s = bkAll(BK.data).find((x) => x.id === id); if (!s) return;
   if (BK.phase !== s.pid0 || BK.group !== s.gid) { BK.phase = s.pid0; BK.group = s.gid; drawBracket(); }
+  const pm = s.pool && $("#sheet .bkp-me");                                // (🔁 v84 : en poule, ton point en haut)
+  if (pm) { pm.scrollIntoView({ block: "center", behavior: smooth ? "smooth" : "auto" }); pm.classList.add("pulse"); return setTimeout(() => pm.classList.remove("pulse"), 1600); }
   const n = $(`#sheet [data-bks="${CSS.escape(s.id)}"]`); if (!n) return;
   n.scrollIntoView({ block: "center", inline: "center", behavior: smooth ? "smooth" : "auto" }); n.classList.add("pulse"); setTimeout(() => n.classList.remove("pulse"), 1600);
 }
 /* 🔍 v47 : zoom du bracket (pincer à deux doigts, ou － / ＋ / ⤢ Tout voir), gardé tant que le bracket est ouvert */
+document.addEventListener("toggle", (e) => { if (BK && e.target.matches?.(".bkp-sets")) BK.poolOpen = e.target.open; }, true);
 const BK_ZMIN = 0.2, BK_ZMAX = 1.6;
 function bkZoom(z, cx) {
   const wrap = $(".bk-wrap"), box = $(".bk-zoom"); if (!wrap || !box) return;
@@ -767,14 +782,14 @@ function render() {
 function renderView() {
   $$("#tabs [data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === D.tab));
   const p = D.player;
-  $("#title").textContent = p ? (p.prefix ? p.prefix + " | " : "") + p.tag : "Sigo Smash";
+  $("#title").textContent = p ? (p.prefix ? p.prefix + " | " : "") + p.tag : "Sigo Hub";
   const v = $("#view");
   if (!D.cfg.sgToken && !D.cfg.repo && !D.cfg.shobuKey) { v.innerHTML = viewWelcome(); return; }
   v.innerHTML = (TABS[D.tab] || viewHome)();
   bindView();
 }
 function viewWelcome() {
-  return `<div class="card setup"><h2>🎮 Sigo Smash</h2><p>L'espace Smash du Hub, dans ta poche : tes stats start.gg, tes prochains tournois et ton chemin dans le bracket, le scouting, ton carnet.</p>
+  return `<div class="card setup"><h2>🎮 Sigo Hub</h2><p>L'espace Smash du Hub, dans ta poche : tes stats start.gg, tes prochains tournois et ton chemin dans le bracket, le scouting, ton carnet.</p>
     <ol><li>Dans le Hub : 🎮 Smash → 📱 Téléphone, pour créer ton dépôt privé et tes jetons.</li><li>Ici : ⚙ Réglages, colle les mêmes informations.</li><li>⟳ pour tout récupérer.</li></ol>
     <button class="btn accent" data-act="settings" style="width:100%">⚙ Réglages</button></div>`;
 }
@@ -931,7 +946,7 @@ async function liveRun(ev) {
     const done = n.state === 3 || !!n.winnerId;
     return { id: String(n.id), feed: !oe && opp?.prereqType === "set" && opp.prereqId ? String(opp.prereqId) : "",
       order: n.completedAt || n.startedAt || (done ? 0 : 9e12) + (n.round < 0 ? 1e6 : 0) + Math.abs(n.round || 0), name: oe ? (oe.name || pl.gamerTag) : "À déterminer", pid: String(pl.id || ""),
-      seed: oe?.initialSeedNum ?? null, label: n.fullRoundText || "", res: done ? (String(n.winnerId) === String(ev.me.id) ? "w" : "l") : !oe ? "wait" : n.state === 2 ? "live" : n.state === 6 ? "called" : "next",
+      seed: oe?.initialSeedNum ?? null, label: n.fullRoundText || "", pool: ["ROUND_ROBIN", "SWISS"].includes(n.phaseGroup?.phase?.bracketType || ""), res: done ? (String(n.winnerId) === String(ev.me.id) ? "w" : "l") : !oe ? "wait" : n.state === 2 ? "live" : n.state === 6 ? "called" : "next",
       score: done ? `${sc(mine) ?? "?"}-${sc(opp) ?? "?"}` : n.state === 2 ? "en cours" : n.state === 6 ? "📣 appelé !" : !oe ? "adversaire pas encore connu" : "à jouer", upset: false };
   }).sort((a, b) => a.order - b.order);
   const w = sets.find((x) => x.res === "wait" && x.feed);                    // (le prochain set sans adversaire : le match qui le désignera)
@@ -940,8 +955,8 @@ async function liveRun(ev) {
     if (f) { const sl = f.slots || [], sc2 = (x) => x?.standing?.stats?.score?.value;
       w.feedInfo = { a: sl[0]?.entrant?.name || "?", b: sl[1]?.entrant?.name || "?", sa: sc2(sl[0]), sb: sc2(sl[1]), state: f.state, label: f.fullRoundText || "" }; }
   } catch (_) {}
-  const losses = sets.filter((x) => x.res === "l").length;
-  const r = { at: now(), state: d.state, sets, out: losses >= 2 || (losses >= 1 && d.state === "COMPLETED") };
+  const losses = sets.filter((x) => x.res === "l" && !x.pool).length;       // (🔁 v84 : une défaite de poule n'élimine pas)
+  const r = { at: now(), state: d.state, sets, out: losses >= 2 || (d.state === "COMPLETED" && (losses >= 1 || (sets.length > 0 && sets.every((x) => x.pool)))) };
   D.live = D.live || {}; D.live[ev.eid] = r; save();
   return r;
 }
@@ -963,12 +978,13 @@ function dayHero(ev, r, path, st) {
   const o = nx ? (nx.res !== "wait" && (nx.res === "live" || nx.res === "called" || nx.name !== "À déterminer") ? { name: nx.name, pid: nx.pid, seed: nx.seed, label: nx.label } : null)
     : first ? { name: first.e?.tag || first.e?.name || "?", pid: first.e?.pid || "", seed: first.seed, label: first.label } : null;
   const kind = r && (r.out || r.state === "COMPLETED") ? "out" : nx ? (nx.res === "live" ? "live" : nx.res === "called" ? "called" : o ? "next" : "wait") : r ? "wait" : first ? "plan" : "none";
-  const h = { live: "🔴 SET EN COURS", called: "📣 TON SET EST APPELÉ", next: "⏭ PROCHAIN SET", wait: "⏳ EN ATTENTE DE TON ADVERSAIRE", out: "🏁 RUN TERMINÉE", plan: "🔮 1ER SET PRÉVU", none: "📋 PAS ENCORE DE SEEDS" }[kind];
+  const pl = nx?.pool;
+  const h = { live: pl ? "🔴 MATCH DE POULE EN COURS" : "🔴 SET EN COURS", called: pl ? "📣 TON MATCH DE POULE EST APPELÉ" : "📣 TON SET EST APPELÉ", next: pl ? "⏭ TON PROCHAIN MATCH DE POULE" : "⏭ PROCHAIN SET", wait: "⏳ EN ATTENTE DE TON ADVERSAIRE", out: "🏁 RUN TERMINÉE", plan: "🔮 1ER SET PRÉVU", none: "📋 PAS ENCORE DE SEEDS" }[kind];
   const h2h = o?.pid && st.opps.find((x) => x.id === o.pid);
   const scoutB = o && /^\d+$/.test(o.pid || "") ? `<button class="btn" data-scout="${esc(o.pid)}" data-name="${esc(o.name)}">🔭 Scouter</button>` : "";
   return `<div class="card day-hero ${kind}"><div class="day-k">${h}</div>
     ${o ? `<div class="day-opp">${o.pid ? av(o.pid, o.name, "") : ""}<div class="grow"><div class="day-name">${esc(o.name)}</div>
-      <div class="small">${o.seed ? `seed ${o.seed} · ` : ""}${esc(dayLab(o.label || nx?.label || ""))}${h2h ? ` · toi contre lui : <b>${wl(h2h.w, h2h.l)}</b>` : " · 1er set contre lui"}</div></div></div>`
+      <div class="small">${o.seed ? `seed ${o.seed} · ` : ""}${pl ? "Poule · " : ""}${esc(dayLab(o.label || nx?.label || ""))}${h2h ? ` · toi contre lui : <b>${wl(h2h.w, h2h.l)}</b>` : " · 1er set contre lui"}</div></div></div>`
       : kind === "out" ? `<div class="day-name">${W}–${L} en sets</div>` : `<div class="muted small">${kind === "wait" ? (nx?.feedInfo ? `<div class="day-feed">Tu attends ${feedText(nx.feedInfo)}${nx.label ? ` <span class="muted">(${esc(dayLab(nx.label))})</span>` : ""}</div>` : "Ton set précédent est fini ; l'adversaire du suivant n'est pas encore connu.") : "Ta run apparaîtra quand les seeds seront publiées."}</div>`}
     <div class="btns" style="margin-top:8px">${scoutB}<button class="btn" data-act="bracket" data-eid="${esc(ev.eid)}" data-title="${esc(ev.name)}">🏆 Bracket</button></div></div>
     ${o?.pid ? stageBlock(D.scout[o.pid]?.chars?.[0]?.k || "") : ""}`;
@@ -1238,9 +1254,9 @@ window.addEventListener("online", () => cloudSoon());
 (() => {
   let y0 = null, pull = 0;
   const ind = document.body.appendChild(Object.assign(document.createElement("div"), { id: "ptr", innerHTML: "⟳" }));
-  document.addEventListener("touchstart", (e) => { y0 = window.scrollY <= 0 && $("#sheet-back").hidden ? e.touches[0].clientY : null; pull = 0; }, { passive: true });
+  document.addEventListener("touchstart", (e) => { y0 = window.scrollY <= 0 && $("#sheet-back").hidden ? e.touches[0]?.clientY ?? null : null; pull = 0; }, { passive: true });
   document.addEventListener("touchmove", (e) => {
-    if (y0 == null) return; pull = Math.max(0, e.touches[0].clientY - y0);
+    if (y0 == null || !e.touches[0]) return; pull = Math.max(0, e.touches[0].clientY - y0);
     if (window.scrollY > 0) { y0 = null; pull = 0; }
     ind.style.transform = `translate(-50%, ${Math.min(pull, 110) - 50}px) rotate(${pull * 3}deg)`; ind.classList.toggle("go", pull > 80); ind.style.opacity = Math.min(1, pull / 80);
   }, { passive: true });
