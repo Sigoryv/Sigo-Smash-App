@@ -58,7 +58,7 @@ async function chLoad() {
   const all = [];
   try {
     const c = await chCache();
-    for (const k of await c.keys()) { const p = new URL(k.url).pathname; const d = await (await c.match(k)).json(); if (p.startsWith("/m/")) all.push(...(d.games || [])); else if (p === "/stats") CHM.stats = d; else if (p === "/an") CHM.an = d; }
+    for (const k of await c.keys()) { const p = new URL(k.url).pathname; const d = await (await c.match(k)).json(); if (p.startsWith("/m/")) all.push(...(d.games || [])); else if (p === "/stats") CHM.stats = d; else if (p === "/an") CHM.an = d; else if (p === "/daily") { CHM.daily = d.games || []; CHM.dAt = d.at || 0; } }
   } catch (_) {}
   const seen = new Set(); CHM.games = all.sort((a, b) => b.end - a.end).filter((g) => !seen.has(g.id) && seen.add(g.id));
   return CHM.games;
@@ -79,6 +79,7 @@ async function chSync(full) {
       await c.put("/m/" + ym, new Response(JSON.stringify({ games: (d.games || []).map((g) => chCompact(g, u)).filter(Boolean), final: ym !== cur && ym !== prev })));
     }
     await c.put("/meta", new Response(JSON.stringify({ user: u, at: Date.now() })));
+    chDailySync();
     CHM.games = null; await chLoad(); D.chAt = Date.now(); save();
   } catch (e) { CHM.err = e.message; }
   finally { CHM.busy = false; }
@@ -162,7 +163,8 @@ function viewChGames() {
   if (chNeed()) return uxSkel(5);
   if (CHM.gid) return viewChGame();
   const gs = chFiltered(), tcs = [...new Set((CHM.games || []).map((g) => g.tclass))];
-  return `${chHeadState()}<div class="chips">${[["all", "Toutes"], ...tcs.map((t) => [t, TCN[t] || t])].map(([k, n]) => `<button class="chip-b ${CHM.tc === k ? "on" : ""}" data-chtc="${k}">${n}</button>`).join("")}</div>
+  if (chUser() && (!CHM.dAt || Date.now() - CHM.dAt > 5 * 60000)) setTimeout(chDailySync, 0);      // (📬 relues au plus toutes les 5 min)
+  return `${chHeadState()}${chDailyBlock()}<div class="chips">${[["all", "Toutes"], ...tcs.map((t) => [t, TCN[t] || t])].map(([k, n]) => `<button class="chip-b ${CHM.tc === k ? "on" : ""}" data-chtc="${k}">${n}</button>`).join("")}</div>
     <div class="card">${gs.slice(0, CHM.n).map((g) => `<div class="row" data-chg="${esc(g.id)}">${chRes(g.res)}<div class="grow"><div><b>${esc(g.opp.name)}</b> <span class="muted small">${g.opp.rating || ""}</span> <span class="ch-dot ${g.color}"></span></div>
       <div class="muted small">${esc(g.opening)} · ${esc(TCN[g.tclass] || g.tclass)} · ${fmtDate(g.end)}</div></div><div style="text-align:right"><b>${g.rating || ""}</b>${chAn(g) ? `<div class="small">🔍 ${chAn(g).blunders ? `<span class="l">${chAn(g).blunders}??</span>` : "✓"}</div>` : g.acc ? `<div class="muted small">${Math.round(g.acc)} %</div>` : ""}</div></div>`).join("") || '<div class="empty small">Aucune partie.</div>'}</div>
     ${gs.length > CHM.n ? `<button class="btn" data-chact="more" style="width:100%">Plus de parties (${gs.length - CHM.n})</button>` : ""}`;
@@ -391,6 +393,61 @@ viewChGame = function () {
   const ml = chMoveList(g.moves, CHM.ply, "game").replace(/<button class="([^"]*)" data-chply="game:(\d+)">/g, (m, cls, n) => { const k = chAn(g).cls?.[n - 1]; return `<button class="${cls} ${k === "??" ? "kb" : k === "?" ? "km" : k === "?!" ? "ki" : ""}" data-chply="game:${n}">`; });
   return html.slice(0, i) + A.sum + A.board + html.slice(j).replace(chMoveList(g.moves, CHM.ply, "game"), A.tip + A.graph + ml);
 };
+
+
+/* ------------------------------------------------------------ 📬 v85 : les parties en différé EN COURS (pas encore dans les archives) */
+function chDailyCompact(g, me) {
+  if ((g.rules || "chess") !== "chess") return null;
+  const who = (x) => (typeof x === "object" && x ? x.username : String(x || "").replace(/\/+$/, "").split("/").pop()) || "";
+  const w = who(g.white).toLowerCase(), b = who(g.black).toLowerCase(), mine = me.toLowerCase(); if (w !== mine && b !== mine) return null;
+  const color = w === mine ? "w" : "b", pgn = g.pgn || "", fen = g.fen || "", side = (fen.split(" ")[1] || "w");
+  const elo = (c) => +chHead(pgn, c + "Elo") || null, eco = g.eco || chHead(pgn, "ECOUrl");
+  const parts = pgn.trim().split(/\n\s*\n/), mt = parts.length > 1 ? parts.slice(1).join("\n").trim() : "";
+  return { id: String(g.url || "").replace(/\D/g, "") || String(g.start_time || ""), url: g.url || "", fen, color, mine: side === color, move_by: +g.move_by || 0, last: +g.last_activity || 0,
+    rated: g.rated !== false, draw: !!g.draw_offer, opp: { name: chHead(pgn, color === "w" ? "Black" : "White") || (color === "w" ? b : w), rating: elo(color === "w" ? "Black" : "White") },
+    rating: elo(color === "w" ? "White" : "Black"), opening: eco ? chOpeningName(eco) : "", moves: chSans(mt) };
+}
+async function chDailySync() {
+  const u = chUser(); if (!u || CHM.dBusy) return;
+  CHM.dBusy = true; CHM.dAt = Date.now();                          // (un échec ne relance pas en boucle)
+  try {
+    const list = ((await chGet(`/player/${u}/games`)).games || []).map((g) => chDailyCompact(g, u)).filter(Boolean)
+      .sort((a, b) => (b.mine - a.mine) || ((a.move_by || 9e12) - (b.move_by || 9e12)) || (b.last - a.last));
+    CHM.daily = list;
+    await (await chCache()).put("/daily", new Response(JSON.stringify({ games: list, at: CHM.dAt })));
+    const seen = D.chDailySeen || [], mine = list.filter((g) => g.mine), fresh = mine.filter((g) => !seen.includes(`${g.id}:${g.moves.length}`));
+    D.chDailySeen = mine.map((g) => `${g.id}:${g.moves.length}`); save();
+    if (fresh.length && seen.length + fresh.length > 0) alertMe("♟ À toi de jouer", fresh.slice(0, 3).map((g) => `contre ${g.opp.name}${g.move_by ? " (reste " + chLeftM(g.move_by) + ")" : ""}`).join(" · "));
+  } catch (_) {}
+  finally { CHM.dBusy = false; }
+  if (D.space === "ch" && $("#sheet-back").hidden && ["chgames", "chstats"].includes(D.tab)) render();
+}
+function chLeftM(ts) {
+  const s = ts - Date.now() / 1000; if (s <= 0) return "temps écoulé";
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  return d ? `${d} j ${h} h` : h ? `${h} h ${String(m).padStart(2, "0")}` : `${m} min`;
+}
+const chAgoM = (ts) => { const s = Date.now() / 1000 - ts; return s < 3600 ? `il y a ${Math.max(1, Math.round(s / 60))} min` : s < 86400 ? `il y a ${Math.round(s / 3600)} h` : `il y a ${Math.round(s / 86400)} j`; };
+function chDailyBlock() {
+  const L0 = CHM.daily || []; if (!L0.length) return "";
+  const n = L0.filter((g) => g.mine).length;
+  return `<div class="card chd"><div class="chd-h"><b>📬 En différé</b> <span class="muted small">${L0.length} en cours${n ? ` · <b class="chd-turn">${n} à toi</b>` : ""}</span></div>
+    ${L0.map((g) => { const urgent = g.mine && g.move_by && g.move_by - Date.now() / 1000 < 6 * 3600;
+      return `<div class="row chd-row ${g.mine ? "mine" : ""} ${urgent ? "urgent" : ""}" data-chd="${esc(g.id)}"><div class="chd-b">${chBoard(g.fen, { flip: g.color === "b", mini: true })}</div>
+        <div class="grow"><div><b>${esc(g.opp.name)}</b> <span class="muted small">${g.opp.rating || ""}</span> <span class="ch-dot ${g.color}"></span></div>
+        <div class="small ${g.mine ? "chd-turn" : "muted"}">${g.mine ? `♟ À toi${g.move_by ? " · reste " + chLeftM(g.move_by) : ""}` : `⏳ Il réfléchit${g.last ? " · " + chAgoM(g.last) : ""}`}</div>
+        <div class="muted small">${g.opening ? esc(g.opening) + " · " : ""}coup ${Math.floor(g.moves.length / 2) + 1}${g.draw ? " · 🤝 nulle proposée" : ""}</div></div>›</div>`; }).join("")}</div>`;
+}
+function sheetChDaily(id) {
+  const g = (CHM.daily || []).find((x) => x.id === id); if (!g) return;
+  sheet(`<h2>📬 ${esc(g.opp.name)} <span class="muted small">${g.opp.rating || ""}</span></h2>
+    <div class="muted small">Tu as les ${g.color === "w" ? "blancs" : "noirs"}${g.opening ? " · " + esc(g.opening) : ""}</div>
+    <div class="${g.mine ? "chd-turn" : "muted"}" style="margin:6px 0">${g.mine ? `♟ À toi de jouer${g.move_by ? " · reste " + chLeftM(g.move_by) : ""}` : `⏳ À lui de jouer${g.last ? " · dernier coup " + chAgoM(g.last) : ""}`}</div>
+    ${chBoard(g.fen, { flip: g.color === "b" })}
+    <div class="small chd-moves">${g.moves.map((m, i) => (i % 2 ? "" : `<b>${i / 2 + 1}.</b> `) + esc(m)).join(" ") || '<span class="muted">Pas encore de coup.</span>'}</div>
+    <div class="btns"><a class="btn accent" href="${esc(g.url)}" target="_blank" rel="noopener">${g.mine ? "Jouer" : "Ouvrir"} sur Chess.com ↗</a>${closeBtn()}</div>`);
+}
+document.addEventListener("click", (e) => { const c = e.target.closest("[data-chd]"); if (c) { e.stopPropagation(); sheetChDaily(c.dataset.chd); } }, true);
 
 /* (le premier affichage d'app.js a eu lieu avant les espaces : on réaffiche avec tout chargé) */
 render();
