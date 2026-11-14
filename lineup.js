@@ -242,7 +242,7 @@ function viewLineupAll() {
 TABS.mu = viewLineupAll;
 
 document.addEventListener("click", (e) => {
-  if (e.target.closest("#find-char")) return sheetFind();
+  if (e.target.closest("#find-char")) { D.tab = "infos"; save(); render(); window.scrollTo(0, 0); setTimeout(() => $("#inf-q")?.focus(), 50); return; }
   const el = e.target.closest("[data-lact]"); if (!el) return;
   const a = el.dataset.lact;
   if (["seg", "mc", "rate", "open-char", "cseg", "mcat", "form", "tl", "tl-new", "tl-edit", "tl-c", "tl-row", "tl-ren", "tl-up", "tl-rm", "tl-add", "tl-apply", "tl-del"].includes(a)) { e.preventDefault(); e.stopPropagation(); }
@@ -295,3 +295,30 @@ function tlPlace(L, s, to) {
 }
 document.addEventListener("change", (e) => { if (e.target.id === "lu-mc") { D.luMc = e.target.value; save(); render(); } });
 if (D.tab === "mu") render();
+
+/* ============================================================ v67 : l'onglet 🔎 Infos */
+const INFQ = { q: "" };
+const infRecent = () => { try { return JSON.parse(localStorage.getItem("sigo.find.recent") || "[]"); } catch (e) { return []; } };
+function infList(q) {
+  const n = luNorm(q), al = Object.entries(LU_ALIASES).filter(([k]) => n && k.startsWith(n)).map(([, v]) => v);
+  return n ? LU_ROSTER.filter(([s, nm]) => luNorm(nm).includes(n) || al.includes(s)) : [...LU_ROSTER].sort((a, b) => a[1].localeCompare(b[1]));
+}
+function infTiles(list) {
+  const P = LUF.pages || {};
+  return list.map(([s, nm]) => `<button class="lu-tile" data-lact="open-char" data-slug="${s}">${luArt(s, "lu-a tile")}<b>${esc(nm)}</b>${luPages(s).every((p) => P[p]) ? '<span class="fd" title="Frame data sur ce téléphone">🥊</span>' : ""}</button>`).join("") || '<div class="empty">Aucun perso.</div>';
+}
+function viewInfos() {
+  const rec = infRecent().map(luR).filter(Boolean), have = Object.keys(LUF.pages || {}).length;
+  if (!LUF.pages) luFramesLoad().then(() => { if (D.tab === "infos") { const g = $("#inf-grid"); if (g) g.innerHTML = infTiles(infList(INFQ.q)); const c = $("#inf-n"); if (c) c.textContent = Object.keys(LUF.pages).length; } });
+  return `<div class="inf-q"><input type="search" id="inf-q" placeholder="Un perso, un surnom (zss, ddd, kkr…)" value="${esc(INFQ.q)}" autocomplete="off"></div>
+    ${rec.length ? `<div id="inf-rec" ${INFQ.q ? "hidden" : ""}><h3>🕘 Récemment</h3><div class="lu-strip" style="margin-bottom:10px">${infTiles(rec)}</div></div>` : ""}
+    <div class="muted small" style="margin:0 2px 6px">🥊 frame data sur ce téléphone : <b id="inf-n">${have}</b> page(s)${have < 89 ? " · le reste : Hub → 🔎 Infos → « 📥 Tout le roster », puis ⟳" : ""}</div>
+    <div class="lu-grid" id="inf-grid">${infTiles(infList(INFQ.q))}</div>`;
+}
+TABS.infos = viewInfos;
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "inf-q") return;
+  INFQ.q = e.target.value; const r = $("#inf-rec"); if (r) r.hidden = !!INFQ.q; const g = $("#inf-grid"); if (g) g.innerHTML = infTiles(infList(INFQ.q));
+});
+document.addEventListener("keydown", (e) => { if (e.target.id === "inf-q" && e.key === "Enter") { const b = $("#inf-grid [data-slug]"); if (b) { e.target.blur(); b.click(); } } });
+if (D.tab === "mu" || D.tab === "infos") render();
