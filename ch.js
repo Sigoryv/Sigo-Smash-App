@@ -159,7 +159,7 @@ function chDrillAuto() {                                      // les coups adver
 const chFiltered = () => (CHM.games || []).filter((g) => CHM.tc === "all" || g.tclass === CHM.tc);
 function viewChGames() {
   if (!chUser()) return chAskUser();
-  if (chNeed()) return '<div class="empty">Tes parties…</div>';
+  if (chNeed()) return uxSkel(5);
   if (CHM.gid) return viewChGame();
   const gs = chFiltered(), tcs = [...new Set((CHM.games || []).map((g) => g.tclass))];
   return `${chHeadState()}<div class="chips">${[["all", "Toutes"], ...tcs.map((t) => [t, TCN[t] || t])].map(([k, n]) => `<button class="chip-b ${CHM.tc === k ? "on" : ""}" data-chtc="${k}">${n}</button>`).join("")}</div>
@@ -187,7 +187,7 @@ function chSpark(pts) {
 const chScore = (gs) => gs.length ? Math.round((100 * (gs.filter((g) => g.res === "W").length + gs.filter((g) => g.res === "D").length / 2)) / gs.length) : 0;
 function viewChStats() {
   if (!chUser()) return chAskUser();
-  if (chNeed()) return '<div class="empty">Tes stats…</div>';
+  if (chNeed()) return uxSkel(5);
   const all = CHM.games || [], st = CHM.stats || {}, gs = chFiltered(), tcs = [...new Set(all.map((g) => g.tclass))];
   const kpi = (t) => { const s = st["chess_" + t]; return s ? `<div class="kpi"><b>${s.last?.rating ?? "–"}</b><span>${TCN[t] || t}${s.best?.rating ? ` · max ${s.best.rating}` : ""}</span></div>` : ""; };
   const recent = gs.filter((g) => g.end * 1000 > Date.now() - 30 * 864e5), fam = (c) => { const m = new Map(); for (const g of gs.filter((x) => x.color === c)) m.set(g.family, [...(m.get(g.family) || []), g]); return [...m].sort((a, b) => b[1].length - a[1].length).slice(0, 6); };
@@ -205,7 +205,7 @@ function viewChStats() {
 /* ------------------------------------------------------------ 🆚 Adversaires */
 function viewChOpp() {
   if (!chUser()) return chAskUser();
-  if (chNeed()) return '<div class="empty">Tes adversaires…</div>';
+  if (chNeed()) return uxSkel(5);
   const m = new Map(); for (const g of chFiltered()) { const k = g.opp.name.toLowerCase(); m.set(k, [...(m.get(k) || []), g]); }
   const q = CHM.oq.toLowerCase(), rows = [...m.values()].filter((l) => !q || l[0].opp.name.toLowerCase().includes(q)).sort((a, b) => b.length - a.length || b[0].end - a[0].end);
   return `${chHeadState()}<input type="search" id="ch-oq" placeholder="Chercher un adversaire…" value="${esc(CHM.oq)}" autocomplete="off">
