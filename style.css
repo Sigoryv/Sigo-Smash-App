@@ -362,3 +362,9 @@ html[data-space=smash] #top { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(
 .bkp-grid td.l { color: var(--red); background: color-mix(in srgb, var(--red) 9%, transparent); }
 .bkp-grid td.next { color: var(--muted); } .bkp-grid td.live { color: var(--red); font-weight: 700; }
 .bkp-sets > summary { cursor: pointer; color: var(--muted); font-size: .86em; margin: 8px 0; }
+/* 📬 v85 : les parties en différé en cours */
+.chd-h { margin-bottom: 6px; }
+.chd-row { gap: 10px; align-items: center; } .chd-row.mine { box-shadow: inset 3px 0 0 var(--green); padding-left: 6px; } .chd-row.urgent { box-shadow: inset 3px 0 0 var(--red); }
+.chd-b { width: 64px; flex: none; } .chd-b .ch-board { width: 64px; }
+.chd-turn { color: var(--green); font-weight: 600; } .chd-row.urgent .chd-turn { color: var(--red); }
+.chd-moves { margin: 8px 0; line-height: 1.7; }
