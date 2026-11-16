@@ -369,3 +369,4 @@ html[data-space=smash] #top { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(
 .chd-turn { color: var(--green); font-weight: 600; } .chd-row.urgent .chd-turn { color: var(--red); }
 .chd-moves { margin: 8px 0; line-height: 1.7; }
 .chd-note { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .chd-notec { border-left: 3px solid var(--accent); }
+.good-t { color: var(--green); } .warn-t { color: var(--red); } .run-r { text-align: right; }
