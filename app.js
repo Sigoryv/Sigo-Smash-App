@@ -292,6 +292,7 @@ async function loadBracket(eid) {
         }
         page++;
       }
+      { const u = new Map(); for (const x of sets) u.set(x.id, x); sets.length = 0; sets.push(...u.values()); }   // (v90 : un set lu deux fois pendant une mise à jour : sa dernière version)
       const phases = (ev.phases || []).slice().sort((a, b) => (a.phaseOrder || 0) - (b.phaseOrder || 0)).map((p) => {
         const gs = new Map(); for (const st of sets.filter((x) => x.phase === String(p.id))) { if (!gs.has(st.group)) gs.set(st.group, { id: st.group, name: st.gname, sets: [] }); gs.get(st.group).sets.push(st); }
         return { id: String(p.id), name: p.name, type: p.bracketType || "", seeds: p.numSeeds || 0, ngroups: p.groupCount || 0, groups: [...gs.values()].sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name)) };
@@ -402,6 +403,11 @@ function bkTreeLayout(list, keys, cmp) {
   let n = 0; const y = new Map();
   const walk = (s) => { const k = kids.get(s.id); if (!k.length) { y.set(s.id, n++ + 0.5); return; } k.forEach(walk); y.set(s.id, k.reduce((a, c) => a + y.get(c.id), 0) / k.length); };
   roots.sort(cmp).forEach(walk);
+  /* v90 : un arbre incohérent (lu en plein milieu d'une mise à jour de start.gg) : pas de placement en arbre plutôt
+     qu'un set dessiné hors de sa colonne ; la lecture suivante remet l'arbre */
+  const ok = list.every((s) => { const v = y.get(s.id); return Number.isFinite(v) && v > 0 && v < n; })
+    && keys.every((k) => { const ys = list.filter((s) => s.round === k).map((s) => y.get(s.id)).sort((a, b) => a - b); return ys.every((v, i) => !i || v - ys[i - 1] > 0.99); });
+  if (!ok) return null;
   return { units: n, y, kids, roots };
 }
 /* une colonne placée : chaque set centré sur sa hauteur dans l'arbre, et les traits vers ceux de la colonne d'avant */
@@ -412,7 +418,8 @@ function bkPlaced(sets, L, U, gap, prev, draw) {
   return `<div class="bk-sets bk-abs" style="height:${H}px">${svg}${sets.map((s) => `<div class="bk-slot" style="top:${(L.y.get(s.id) - 0.5) * U}px;height:${U}px">${draw(s)}</div>`).join("")}</div>`;
 }
 function drawBracket() {
-  const r = BK?.data;
+  const r = BK?.data, dk = `${BK?.eid}|${BK?.phase}|${BK?.group}`;
+  SHEET_KEEP = !!r && !$("#sheet-back").hidden && BK.drawn === dk && CUR === BKDRAW; if (r) BK.drawn = dk;
   if (!r) return sheet(`<h2>🏆 ${esc(BK.title)}</h2><div class="card muted">Lecture du bracket…</div><div class="btns">${closeBtn()}</div>`);
   CUR = BKDRAW;
   const meIn = (g) => g.sets.some((s) => s.slots.some((x) => x && isMeBk(x, r)));
@@ -891,7 +898,8 @@ function viewCarnet() {
 
 /* ------------------------------------------------------------ les fiches (en bas de l'écran) */
 let CUR = null, BACK = null;                 // (la fiche ouverte, et celle où revenir depuis la fiche d'un joueur)
-function sheet(html) { $("#sheet").innerHTML = html; $("#sheet-back").hidden = false; $("#sheet").scrollTop = 0; }
+let SHEET_KEEP = false;                 // (v90 : un redessin du même bracket garde la position, sans passer par « tout en haut »)
+function sheet(html, keep) { const t = $("#sheet").scrollTop, k = keep || SHEET_KEEP; SHEET_KEEP = false; $("#sheet").innerHTML = html; $("#sheet-back").hidden = false; $("#sheet").scrollTop = k ? t : 0; }
 function closeSheet() { $("#sheet-back").hidden = true; CUR = BACK = null; render(); }
 const sgLink = (url) => url ? `<a class="sglink" href="${esc(url)}" target="_blank" rel="noopener">${url.includes("shobuapp") ? "Shobu" : "start.gg"} ↗</a>` : "";
 const closeBtn = () => BACK ? `<button class="btn" data-act="back">‹ Retour</button>` : `<button class="btn" data-act="close">Fermer</button>`;
