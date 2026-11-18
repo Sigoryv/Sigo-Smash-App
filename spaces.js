@@ -11,6 +11,10 @@
 /** (v83) un squelette de chargement (au lieu de « … ») */
 const uxSkel = (n = 4) => `<div class="skel">${Array.from({ length: n }, (_, i) => `<div class="skel-r"><i></i><div><b style="width:${55 + ((i * 17) % 35)}%"></b><b style="width:${30 + ((i * 23) % 40)}%"></b></div></div>`).join("")}</div>`;
 const SPACES = [["smash", "🎮", "Smash"], ["wh", "⚔", "Warhammer"], ["ch", "♟", "Échecs"]];
+/* (v101) les icônes dessinées (icons.js) à la place des emojis de la barre du bas et du sélecteur d'espace */
+const M_ICO = { smash: "trophy", wh: "shield", ch: "crown", home: "home", tours: "trophy", players: "swords", mu: "users", carnet: "book", infos: "search",
+  wlists: "list", wlive: "swords", wsheets: "file", wcoll: "box", chome: "pawn", chlearn: "book", chgames: "pawn", chstats: "chart", chopp: "swords" };
+const mIco = (id, em, size = 22) => (typeof ico === "function" && M_ICO[id] ? ico(M_ICO[id], size) : em);
 const SPACE_TABS = {
   smash: [["home", "🏠", "Accueil"], ["tours", "🏆", "Tournois"], ["players", "🆚", "Joueurs"], ["mu", "🎭", "Line Up"], ["carnet", "📓", "Carnet"], ["infos", "🔎", "Infos"]],
   wh: [["wlists", "📋", "Listes"], ["wlive", "🎲", "Partie"], ["wsheets", "📖", "Fiches"], ["wcoll", "📦", "Collection"]],
@@ -21,12 +25,12 @@ D.space = SPACES.some((s) => s[0] === D.space) ? D.space : spaceOfTab(D.tab);
 D.tabs = D.tabs || {}; D.esp = Object.assign({ flat: {}, stamps: {} }, D.esp); D.espRO = D.espRO || {};
 
 /* ------------------------------------------------------------ l'en-tête et les onglets */
-$("#title").insertAdjacentHTML("beforebegin", `<div id="spaces" role="tablist">${SPACES.map(([id, ico, n]) => `<button data-space="${id}" aria-label="${n}" title="${n}">${ico}</button>`).join("")}</div>`);
+$("#title").insertAdjacentHTML("beforebegin", `<div id="spaces" role="tablist">${SPACES.map(([id, em, n]) => `<button data-space="${id}" aria-label="${n}" title="${n}">${mIco(id, em, 20)}</button>`).join("")}</div>`);
 function paintChrome() {
   $$("#spaces [data-space]").forEach((b) => b.classList.toggle("on", b.dataset.space === D.space));
   const tabs = SPACE_TABS[D.space];
   if (!tabs.some((t) => t[0] === D.tab)) D.tab = D.tabs[D.space] && tabs.some((t) => t[0] === D.tabs[D.space]) ? D.tabs[D.space] : tabs[0][0];
-  const html = tabs.map(([id, ico, n]) => `<button data-tab="${id}"><span>${ico}</span>${esc(n)}</button>`).join("");
+  const html = tabs.map(([id, em, n]) => `<button data-tab="${id}"><span>${mIco(id, em)}</span>${esc(n)}</button>`).join("");
   const nav = $("#tabs"); if (nav.dataset.space !== D.space) { nav.innerHTML = html; nav.dataset.space = D.space; nav.style.gridTemplateColumns = `repeat(${tabs.length}, 1fr)`; }
   $("#find-char").hidden = false;                       // (v83 : 🔎 cherche dans tous les espaces)
   document.documentElement.dataset.space = D.space;
