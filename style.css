@@ -429,3 +429,7 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 #toast.err { background: #3d1c1b; color: #ffdcd7; }
 .day-hero, .bk-live { border-left-width: 0; border-top: 3px solid var(--accent); }
 .wu.lord b { color: var(--accent); }
+
+/* (v106) les logos des espaces dans le sélecteur */
+#spaces .sp-logo { width: 22px; height: 22px; display: block; }
+#top #spaces button:has(.sp-logo):not(.on) { filter: grayscale(.35); opacity: .85; }
