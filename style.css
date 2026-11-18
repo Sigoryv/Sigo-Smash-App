@@ -433,3 +433,15 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 /* (v106) les logos des espaces dans le sélecteur */
 #spaces .sp-logo { width: 22px; height: 22px; display: block; }
 #top #spaces button:has(.sp-logo):not(.on) { filter: grayscale(.35); opacity: .85; }
+
+/* (v116) 📺 les tournois à suivre */
+.wtp-card { cursor: pointer; }
+.wtp-card.st-live { border-color: var(--red, #e5534b); }
+.wtp-fol { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.wtp-info .row { align-items: flex-start; }
+.wtp-k { min-width: 26px; }
+.wtp-stream { display: inline-flex; gap: 4px; align-items: center; text-decoration: none; margin: 0 4px 4px 0; }
+.wtp-p { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 4px; }
+.wtp-hl { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.wtp-up { padding: 3px 0; }
+.chip.live { color: var(--red, #e5534b); border-color: currentColor; }
