@@ -25,7 +25,8 @@ D.space = SPACES.some((s) => s[0] === D.space) ? D.space : spaceOfTab(D.tab);
 D.tabs = D.tabs || {}; D.esp = Object.assign({ flat: {}, stamps: {} }, D.esp); D.espRO = D.espRO || {};
 
 /* ------------------------------------------------------------ l'en-tête et les onglets */
-$("#title").insertAdjacentHTML("beforebegin", `<div id="spaces" role="tablist">${SPACES.map(([id, em, n]) => `<button data-space="${id}" aria-label="${n}" title="${n}">${mIco(id, em, 20)}</button>`).join("")}</div>`);
+const M_LOGO = { smash: "smash", wh: "wh", ch: "chess" };   // (v106) les logos de Lucas (img/)
+$("#title").insertAdjacentHTML("beforebegin", `<div id="spaces" role="tablist">${SPACES.map(([id, em, n]) => `<button data-space="${id}" aria-label="${n}" title="${n}">${M_LOGO[id] ? `<img class="sp-logo" src="img/${M_LOGO[id]}.png" alt="">` : mIco(id, em, 20)}</button>`).join("")}</div>`);
 function paintChrome() {
   $$("#spaces [data-space]").forEach((b) => b.classList.toggle("on", b.dataset.space === D.space));
   const tabs = SPACE_TABS[D.space];
