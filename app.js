@@ -733,6 +733,7 @@ async function syncCloud() {
   let snapShobu = null;
   if (snap.obj) {
     const s = await decrypt(snap.obj); snapShobu = s;
+    if (s.watch && (s.watch.at || 0) >= (D.watch?.at || 0)) D.watch = s.watch;          // (📺 v116 : les tournois à suivre du Hub)
     if (typeof luSyncFrames === "function") await luSyncFrames(s).catch((e) => localStorage.setItem("sigo.frames.err", "Frame data : " + e.message));   // (v65 : la frame data gardée par le Hub)
     if (s.last_sync && (!D.lastSg || new Date(s.last_sync) > new Date(D.lastSg))) {
       D.sets = s.sets || D.sets; D.chars = Object.keys(s.chars || {}).length ? s.chars : D.chars; D.player = s.player || D.player;
@@ -813,6 +814,7 @@ function viewHome() {
     ${ups().filter((u) => dayOf(u) && (u.start || 0) * 1000 > Date.now() && u.events.some((ev) => ev.me)).map((u) => `<div class="card tmode" data-act="day" data-tid="${esc(u.tid)}"><div class="small tmode-h">🔥 JOUR J · ${esc(countdown(u.start))}</div><b>${esc(u.name)}</b>
       <div class="small">Ton 1er set, tes adversaires probables et leur scouting : touche pour ouvrir.</div></div>`).join("")}
     ${ask ? '<button class="btn" data-act="notif" style="width:100%;margin-bottom:10px">🔔 Activer les alertes (prochain adversaire, set lancé)</button>' : ""}
+    ${typeof wtpHome === "function" ? wtpHome() : ""}
     <div class="kpis"><div class="kpi"><b>${st.pct} %</b><span>sets ${st.W}-${st.L}</span></div><div class="kpi"><b>${st.gpct} %</b><span>games ${st.gw}-${st.gl}</span></div><div class="kpi"><b>${st.tours.length}</b><span>tournois</span></div></div>
     ${up.length ? `<h2>🗓 À venir</h2>${up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div><div class="muted small">${esc(fmtDay(u.start))} · <b>${countdown(u.start)}</b>${u.events[0]?.me?.seed ? ` · seed ${u.events[0].me.seed}` : ""}</div></div>›</div>`).join("")}` : ""}
     ${t ? `<h2>🏆 Dernier tournoi</h2><div class="card" data-tour="${esc(t.key)}"><div class="banner" ${t.tbanner ? `style="background-image:url('${esc(t.tbanner)}')"` : ""}></div>
@@ -837,8 +839,8 @@ function goalCard(g, sets) {
 let tourSeg = "up";
 function viewTours() {
   const st = stats(allSets()), up = ups();
-  return `<div class="seg"><button data-seg="up" class="${tourSeg === "up" ? "on" : ""}">À venir (${up.length})</button><button data-seg="past" class="${tourSeg === "past" ? "on" : ""}">Passés (${st.tours.length})</button><button data-seg="find" class="${tourSeg === "find" ? "on" : ""}">🔎 Chercher</button></div>
-    ${tourSeg === "find" ? viewFind() : tourSeg === "up" ? (up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div>
+  return `<div class="seg"><button data-seg="up" class="${tourSeg === "up" ? "on" : ""}">À venir (${up.length})</button><button data-seg="past" class="${tourSeg === "past" ? "on" : ""}">Passés (${st.tours.length})</button><button data-seg="watch" class="${tourSeg === "watch" ? "on" : ""}">📺 Suivis (${(D.watch?.tours || []).length})</button><button data-seg="find" class="${tourSeg === "find" ? "on" : ""}">🔎 Chercher</button></div>
+    ${tourSeg === "watch" ? viewWatch() : tourSeg === "find" ? viewFind() : tourSeg === "up" ? (up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div>
         <div class="muted small">${esc(fmtDay(u.start))} · ${countdown(u.start)}${u.city ? " · " + esc(u.city) : ""}</div></div>›</div>`).join("") || '<div class="empty">Aucun tournoi à venir où tu es inscrit.</div>')
     : `<div class="card">${st.tours.map((t) => `<div class="row" data-tour="${esc(t.key)}">${logo(t.timg, t.name)}<div class="grow"><div><b>${esc(t.name)}</b>${t.src === "shobu" ? ' <span class="chip shobu">Shobu</span>' : ""}</div>
         <div class="muted small">${fmtDate(t.ts)} · ${t.entrants || "?"} j. · ${wl(t.w, t.l)}</div></div><b>${ordinal(t.place)}</b></div>`).join("") || '<div class="empty">Pas encore de tournoi.</div>'}</div>`}`;
