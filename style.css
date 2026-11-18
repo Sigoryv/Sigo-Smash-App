@@ -380,3 +380,52 @@ html[data-space=smash] #top { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(
 .lu2-hl { display: flex; gap: 8px; overflow-x: auto; }
 .lu2-hc { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 92px; padding: 8px 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); font: inherit; }
 .lu2-hc.main { border-color: var(--accent); } .lu2-hc b { font-size: .85em; }
+
+/* ============================================================ (v101) VAGUE 7 — LE SOCLE ET LES UNIVERS SUR LE TÉLÉPHONE
+   Le même fond d'encre que le Hub, les mêmes polices et icônes ; chaque espace garde sa couleur et sa typo d'affiche
+   (Smash : rouge et Barlow Condensed ; Warhammer : laiton et Cinzel ; Échecs : bois et Fraunces). */
+:root { --bg: #0e1014; --panel: #14171c; --panel2: #1b1f26; --line: #262b34; --text: #ebe8e3; --muted: #9ba1ac; --field: #0b0d10;
+  --green: #4cc38a; --red: #f0716a;
+  --accent: #ff5b4f; --accent2: #ffd23f; --on-accent: #140806;
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --font-head: "Space Grotesk", "Inter", sans-serif;
+  --font-disp: "Barlow Condensed", "Arial Narrow", sans-serif; }
+html[data-space=wh] { --accent: #c9a24a; --accent2: #d9584f; --on-accent: #120e05; --font-disp: "Cinzel", Georgia, serif;
+  --bg: #0c0b09; --panel: #15130f; --panel2: #1f1c17; --line: #2f2a20; --text: #ece4d0; --muted: #a59d89; }
+html[data-space=ch] { --accent: #d29a5c; --accent2: #efe6d2; --on-accent: #140d05; --font-disp: "Fraunces", Georgia, serif;
+  --bg: #0f0d0b; --panel: #17130f; --panel2: #221c15; --line: #33291e; --text: #efe6d2; --muted: #b3a58c; }
+html, body { font-family: var(--font-ui); }
+h2 { font-family: var(--font-disp); font-weight: 700; font-size: 1.45em; letter-spacing: .005em; }
+html[data-space=smash] h2 { text-transform: uppercase; font-weight: 800; }
+html[data-space=ch] h2 { font-weight: 600; }
+h3 { font-size: .86em; font-weight: 700; font-variant-caps: all-small-caps; letter-spacing: .07em; }
+#title { font-family: var(--font-head); font-weight: 600; }
+#top { background: var(--bg); box-shadow: inset 0 -3px 0 var(--accent) !important; border-bottom: 0; }
+#top button { display: inline-grid; place-items: center; color: var(--muted); }
+#top button:active { color: var(--text); }
+#spaces button { display: inline-grid; place-items: center; color: var(--muted); }
+#spaces button.on { color: var(--accent); }
+/* la barre du bas : des icônes dessinées, l'onglet ouvert en couleur d'accent */
+#tabs { background: #0a0c0f; }
+html[data-space=wh] #tabs { background: #090806; } html[data-space=ch] #tabs { background: #0b0908; }
+#tabs button span { display: grid; place-items: center; height: 26px; filter: none; }
+#tabs button.on { color: var(--accent); } #tabs button.on span { filter: none; }
+/* cartes, chiffres, boutons */
+.card, .kpi { border-radius: 10px; }
+.kpi > b, .big, .wscore b, .wtot b { font-family: var(--font-disp); font-weight: 700; letter-spacing: .005em; }
+.kpi > b { font-size: 1.7em; line-height: 1.05; }
+.kpis .kpi:first-child > b { color: var(--accent2); }
+html[data-space=wh] .kpis .kpi:first-child > b, html[data-space=wh] .big, html[data-space=wh] .wtot b, html[data-space=wh] .wscore b { color: var(--accent); }
+.kpi > span { font-variant-caps: all-small-caps; letter-spacing: .05em; font-size: .8em; }
+.big { color: var(--accent2); font-size: 2.4em; }
+.res { font-family: var(--font-disp); font-size: .95em; }
+.res.w { color: var(--accent2); background: color-mix(in srgb, var(--accent2) 15%, transparent); }
+.res.l { color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+.btn { border-radius: 8px; }
+.btn.accent, .fab { color: var(--on-accent); }
+.seg button.on { background: var(--accent); color: var(--on-accent); }
+#sheet { background: var(--panel); }
+#toast { background: var(--text); color: var(--bg); border: 0; }
+#toast.err { background: #3d1c1b; color: #ffdcd7; }
+.day-hero, .bk-live { border-left-width: 0; border-top: 3px solid var(--accent); }
+.wu.lord b { color: var(--accent); }
