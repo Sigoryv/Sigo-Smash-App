@@ -1,6 +1,6 @@
 /* Le service worker : l'appli s'ouvre sans réseau (dernière version gardée), les images des tournois aussi. */
-const APP = "sigo-smash-app-v35", IMG = "sigo-smash-img-v1";
-const SHELL = ["./", "index.html", "bk_pool.js", "app.js", "lineup.js", "lineup2.js", "spaces.js", "wh.js", "chesslib.js", "chess_gfx.js", "chess_lib.js", "ch.js", "nav.js", "ux.js", "ux2.js", "chess.css", "style.css", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable.png"];
+const APP = "sigo-smash-app-v36", IMG = "sigo-smash-img-v1";
+const SHELL = ["./", "index.html", "bk_pool.js", "app.js", "lineup.js", "lineup2.js", "spaces.js", "wh.js", "chesslib.js", "chess_gfx.js", "chess_lib.js", "ch.js", "nav.js", "ux.js", "ux2.js", "chess.css", "fonts.css", "style.css", "icons.js", "fonts/barlow-condensed-latin-700-normal.woff2", "fonts/barlow-condensed-latin-800-normal.woff2", "fonts/cinzel-latin-700-normal.woff2", "fonts/cormorant-garamond-latin-700-normal.woff2", "fonts/fraunces-latin-600-normal.woff2", "fonts/inter-latin-400-normal.woff2", "fonts/inter-latin-600-normal.woff2", "fonts/inter-latin-700-normal.woff2", "fonts/space-grotesk-latin-600-normal.woff2", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-maskable.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(APP).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== APP && k !== IMG).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", (e) => {
