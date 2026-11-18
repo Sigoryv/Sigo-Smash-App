@@ -74,7 +74,7 @@ function bkpHTML(r, ph, g, o) {
   if (!rows.length) return '<div class="muted small">Pas encore de joueurs dans cette poule.</div>';
   const nd = g.sets.filter((s) => s.state === "done").length, over = nd === g.sets.length;
   const focus = rows.find((p) => o.hl ? p.x.id === o.hl : o.isMe(p.x));
-  const cls = (p) => `${o.isMe(p.x) ? "me" : ""} ${o.hl === p.x.id ? "hl" : ""} ${qual.has(p.x.id) ? "q" : ""}`;
+  const cls = (p) => `${o.isMe(p.x) ? "me" : ""} ${o.hl === p.x.id ? "hl" : ""} ${qual.has(p.x.id) ? "q" : ""} ${(o.fav || []).includes(p.x.pid) && !o.isMe(p.x) ? "fav" : ""}`;
   const pname = (p) => `<span class="bkp-pn" data-bkp="${bkpEsc(p.x.id)}" data-bkn="${bkpEsc(p.x.name)}">${o.av ? o.av(p.x) : ""}<span class="bk-name">${bkpEsc(p.x.name)}</span></span>`;
   const gd = (p) => { const d = p.gw - p.gl; return d > 0 ? "+" + d : String(d); };
   const pre = (p) => p.w + p.l;
