@@ -447,7 +447,9 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 .chip.live { color: var(--red, #e5534b); border-color: currentColor; }
 
 /* 🔮 v133 : la run prévue (bk_proj.js) */
-.bk-set.proj { border: 1px dashed #e8a33d; }
+.bk-set.proj { border: 1px dashed #e8a33d88; }
+.bk-set.run { border: 2px dashed #e8a33d; }
+.bk-p.pw .bk-sc { color: #e8c27a; }
 .bk-p.pj { font-style: italic; opacity: .85; }
 .bk-p.pj .bk-name { color: #e8c27a; }
 .bk-p.pj.me .bk-name { color: var(--accent); }
