@@ -391,12 +391,13 @@ function sbLayout(sets) {
   }).filter((p) => p.groups.length);
 }
 /* v134 : l'ordre où tombent les perdants d'un tour winners : celui qui évite les revanches (smash_bracket.py : _drop_order) */
-function sbDropOrder(prev, q, by) {
+function sbDropOrder(prev, q, by, d = 0) {
   const desc = (id, acc) => { const s = by.get(id); if (id && s && s.round > 0 && !acc.has(id)) { acc.add(id); for (const p of s.pre || []) desc(p, acc); } return acc; };
   const orig = (id, acc) => { const s = by.get(id); if (!s || acc.has(id)) return acc; acc.add(id);
     for (const p of s.pre || []) { const c = by.get(p); if (c) { if (c.round > 0) desc(p, acc); else orig(p, acc); } } return acc; };
   const n = q.length, J = [...Array(n).keys()];
-  const cands = [J.map((j) => n - 1 - j), J.map((j) => (j + (n >> 1)) % n), J.map((j) => (n - 1 - j + (n >> 1)) % n), J];
+  const rev = J.map((j) => n - 1 - j), hrev = J.map((j) => (n - 1 - j + (n >> 1)) % n);       // (v139 : chutes paires inversées, impaires inversées + moitiés échangées)
+  const cands = [...(d % 2 ? [hrev, rev] : [rev, hrev]), J.map((j) => (j + (n >> 1)) % n), J];
   const og = prev.map((x) => orig(x.id, new Set())), dq = q.map((x) => desc(x.id, new Set()));
   const cost = (c) => J.filter((j) => [...og[j]].some((v) => dq[c[j]].has(v))).length;
   return cands.reduce((a, c) => (cost(c) < cost(a) ? c : a));
@@ -410,13 +411,19 @@ function sbPre(sets) {                                         // (v133 : + les 
   const pairs = (cur, q) => cur.forEach((s, j) => { s.pre = [q[2 * j].id, q[2 * j + 1].id]; });
   wk.forEach((k, i) => { if (!i || wk[i - 1] !== k - 1) return; const prev = W.get(wk[i - 1]), cur = W.get(k);
     if (prev.length === 2 * cur.length) pairs(cur, prev); else if (prev.length === cur.length) cur.forEach((s, j) => { s.pre = [prev[j].id, null]; }); });
-  let qi = 0;
-  lk.forEach((k, i) => {
-    const cur = Lo.get(k), prev = i && lk[i - 1] === k - 1 ? Lo.get(lk[i - 1]) : null, q = qi < wk.length ? W.get(wk[qi]) : null;
-    if (!prev) { if (q && q.length === 2 * cur.length) { pairs(cur, q); qi++; } else if (q && q.length === cur.length) { cur.forEach((s, j) => { s.pre = [q[j].id, null]; }); qi++; } }
-    else if (prev.length === 2 * cur.length) pairs(cur, prev);
-    else if (prev.length === cur.length) { const take = !!q && q.length === cur.length, perm = take ? sbDropOrder(prev, q, by) : null; cur.forEach((s, j) => { s.pre = [prev[j].id, take ? q[perm[j]].id : null]; }); if (take) qi++; }
-  });
+  // v139 : chaque tour losers « un pour un » reçoit les perdants d'un tour winners de même taille, appariés depuis la fin ;
+  // le 1er tour losers : les perdants du 1er tour winners deux par deux s'il en reste un, sinon la phase d'avant (smash_bracket.py)
+  const kind = new Map(), drops = new Map();
+  lk.forEach((k, i) => { const prev = i && lk[i - 1] === k - 1 ? Lo.get(lk[i - 1]) : null, cur = Lo.get(k);
+    kind.set(k, !prev ? "first" : prev.length === 2 * cur.length ? "half" : prev.length === cur.length ? "eq" : "?");
+    if (kind.get(k) === "half") pairs(cur, prev); });
+  let wi = wk.length - 1;
+  for (const k of lk.slice().reverse()) if (kind.get(k) === "eq" && wi >= 0 && W.get(wk[wi]).length === Lo.get(k).length) { drops.set(k, W.get(wk[wi])); wi--; }
+  [...drops.keys()].sort((a, b) => a - b).forEach((k, d) => { const cur = Lo.get(k), prev = Lo.get(k - 1), q = drops.get(k), perm = sbDropOrder(prev, q, by, d);
+    cur.forEach((s, j) => { s.pre = [prev[j].id, q[perm[j]].id]; }); });
+  for (const k of lk) if (kind.get(k) === "eq" && !drops.has(k)) Lo.get(k).forEach((s, j) => { s.pre = [Lo.get(k - 1)[j].id, null]; });
+  if (lk.length && kind.get(lk[0]) === "first" && wi >= 0) { const q = W.get(wk[wi]), cur = Lo.get(lk[0]);
+    if (q.length === 2 * cur.length) pairs(cur, q); else if (q.length === cur.length) cur.forEach((s, j) => { s.pre = [q[j].id, null]; }); }
   const gf = sets.filter((s) => s.round >= 99 && !/reset/i.test(s.label || ""));
   if (gf.length && wk.length && lk.length && W.get(wk[wk.length - 1]).length === 1 && Lo.get(lk[lk.length - 1]).length === 1) gf[0].pre = [W.get(wk[wk.length - 1])[0].id, Lo.get(lk[lk.length - 1])[0].id];
 }
