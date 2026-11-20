@@ -395,10 +395,22 @@ function sbLayout(sets) {
     return { id: pid, name: !many ? "Bracket" : i === phs.length - 1 ? "Phase finale" : `Phase ${i + 1}`, type: "", groups };
   }).filter((p) => p.groups.length);
 }
+/* v134 : l'ordre où tombent les perdants d'un tour winners : celui qui évite les revanches (smash_bracket.py : _drop_order) */
+function sbDropOrder(prev, q, by) {
+  const desc = (id, acc) => { const s = by.get(id); if (id && s && s.round > 0 && !acc.has(id)) { acc.add(id); for (const p of s.pre || []) desc(p, acc); } return acc; };
+  const orig = (id, acc) => { const s = by.get(id); if (!s || acc.has(id)) return acc; acc.add(id);
+    for (const p of s.pre || []) { const c = by.get(p); if (c) { if (c.round > 0) desc(p, acc); else orig(p, acc); } } return acc; };
+  const n = q.length, J = [...Array(n).keys()];
+  const cands = [J.map((j) => n - 1 - j), J.map((j) => (j + (n >> 1)) % n), J.map((j) => (n - 1 - j + (n >> 1)) % n), J];
+  const og = prev.map((x) => orig(x.id, new Set())), dq = q.map((x) => desc(x.id, new Set()));
+  const cost = (c) => J.filter((j) => [...og[j]].some((v) => dq[c[j]].has(v))).length;
+  return cands.reduce((a, c) => (cost(c) < cost(a) ? c : a));
+}
 function sbPre(sets) {                                         // (v133 : + les perdants qui tombent en losers, et la grande finale : smash_bracket.py)
   const R = { 1: new Map(), "-1": new Map() };
   for (const s of sets) { s.order = 0; s.pre = [null, null]; if (s.round && Math.abs(s.round) < 99) { const m = R[s.round > 0 ? 1 : -1], k = Math.abs(s.round); if (!m.has(k)) m.set(k, []); m.get(k).push(s); } }
   for (const m of Object.values(R)) for (const l of m.values()) l.forEach((s, j) => { s.order = j + 1; });
+  const by = new Map(sets.map((s) => [s.id, s]));
   const W = R[1], Lo = R["-1"], wk = [...W.keys()].sort((a, b) => a - b), lk = [...Lo.keys()].sort((a, b) => a - b);
   const pairs = (cur, q) => cur.forEach((s, j) => { s.pre = [q[2 * j].id, q[2 * j + 1].id]; });
   wk.forEach((k, i) => { if (!i || wk[i - 1] !== k - 1) return; const prev = W.get(wk[i - 1]), cur = W.get(k);
@@ -408,7 +420,7 @@ function sbPre(sets) {                                         // (v133 : + les 
     const cur = Lo.get(k), prev = i && lk[i - 1] === k - 1 ? Lo.get(lk[i - 1]) : null, q = qi < wk.length ? W.get(wk[qi]) : null;
     if (!prev) { if (q && q.length === 2 * cur.length) { pairs(cur, q); qi++; } else if (q && q.length === cur.length) { cur.forEach((s, j) => { s.pre = [q[j].id, null]; }); qi++; } }
     else if (prev.length === 2 * cur.length) pairs(cur, prev);
-    else if (prev.length === cur.length) { const take = !!q && q.length === cur.length; cur.forEach((s, j) => { s.pre = [prev[j].id, take ? q[q.length - 1 - j].id : null]; }); if (take) qi++; }
+    else if (prev.length === cur.length) { const take = !!q && q.length === cur.length, perm = take ? sbDropOrder(prev, q, by) : null; cur.forEach((s, j) => { s.pre = [prev[j].id, take ? q[perm[j]].id : null]; }); if (take) qi++; }
   });
   const gf = sets.filter((s) => s.round >= 99 && !/reset/i.test(s.label || ""));
   if (gf.length && wk.length && lk.length && W.get(wk[wk.length - 1]).length === 1 && Lo.get(lk[lk.length - 1]).length === 1) gf[0].pre = [W.get(wk[wk.length - 1])[0].id, Lo.get(lk[lk.length - 1])[0].id];
