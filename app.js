@@ -346,12 +346,72 @@ async function shobuBracket(eid) {
   if (!r.ok) throw new Error("Shobu a répondu " + r.status);
   const d = await r.json(), me = norm(D.cfg.shobuUser || "");
   const rd = (name) => { const n = String(name || "").toLowerCase(), m = n.match(/round\s*(\d+)/); let k = m ? +m[1] : n.includes("quarter") ? 90 : n.includes("semi") ? 91 : n.includes("final") ? 92 : 50; if (n.includes("grand")) k = 99 + (n.includes("reset") ? 1 : 0); return n.includes("loser") ? -k : k; };
-  const sets = (d.sets || []).filter((x) => !(x.slots || []).some((y) => y?.isBye)).map((x) => {
+  const sets = (d.sets || []).map((x) => {
     const slots = [0, 1].map((i) => { const y = (x.slots || [])[i], e = y?.entrant; return e ? { id: "shobu:" + norm(e.player?.username || e.name), name: e.name || e.player?.username || "?", seed: e.seed, pid: "", score: y.score } : null; });
     const w = (x.slots || []).findIndex((y) => y?.isWinner), st = String(x.status || "").toUpperCase();
-    return { id: String(x.id), round: rd(x.roundName), label: x.roundName || "", ident: "", order: x.number || 0, state: st === "COMPLETED" ? "done" : st.startsWith("IN") || st === "ONGOING" || st === "STARTED" ? "live" : "next", winner: w >= 0 && slots[w] ? slots[w].id : "", chars: {}, slots };
+    return { id: String(x.id), round: rd(x.roundName), label: x.roundName || "", ident: "", order: x.number || 0, state: st === "COMPLETED" ? "done" : st.startsWith("IN") || st === "ONGOING" || st === "STARTED" ? "live" : "next", winner: w >= 0 && slots[w] ? slots[w].id : "", chars: {}, slots,
+             bye: (x.slots || []).some((y) => y?.isBye), bslot: [0, 1].map((i) => !!(x.slots || [])[i]?.isBye), g: sbGroupKey(x) };
   });
-  return { eid, name: d.event?.name || "Bracket", tournament: "", state: sets.length && sets.every((x) => x.state === "done") ? "done" : "live", me: me ? "shobu:" + me : "", phases: sets.length ? [{ id: "", name: "Bracket", type: "", groups: [{ id: "", name: "", sets }] }] : [], at: now() };
+  const phases = sbLayout(sets), all = phases.flatMap((p) => p.groups.flatMap((g) => g.sets));
+  return { eid, name: d.event?.name || "Bracket", tournament: "", state: all.length && all.every((x) => x.state === "done") ? "done" : "live", me: me ? "shobu:" + me : "", phases, at: now() };
+}
+/* 🧩 v132 : un bracket Shobu en plusieurs tableaux (poules, puis phase finale…) : chaque tableau recommence à
+   « Winners Round 1 ». On les sépare (champ de poule s'il existe, sinon dès qu'un tableau repart au 1er tour), on
+   regroupe en phases les tableaux de même forme (les poules) et on relie chaque set à ceux qui le nourrissent (« pre »,
+   pour l'arbre) : les sets d'un tour, dans l'ordre, nourrissent deux à deux ceux du suivant (byes compris, puis retirés). */
+function sbGroupKey(x) {
+  for (const k of ["phaseGroupId", "poolId", "groupId", "bracketId", "phaseGroup", "pool", "group", "bracket"]) {
+    let v = x[k]; if (v && typeof v === "object") v = v.id || v.name;
+    if (v !== undefined && v !== null && v !== "") return String(v);
+  }
+  return null;
+}
+function sbLayout(sets) {
+  sets = sets.slice().sort((a, b) => (+a.id || 0) - (+b.id || 0));
+  const segs = [];
+  for (const s of sets) {
+    const cur = segs[segs.length - 1];
+    if (cur && s.g !== null && cur.k === s.g) { cur.sets.push(s); continue; }
+    if (cur && s.g === null) {
+      const top = Math.max(0, ...cur.sets.filter((x) => x.round > 0 && x.round < 99).map((x) => x.round));
+      if (!(s.round > 0 && s.round < top && cur.sets[cur.sets.length - 1].round !== s.round)) { cur.sets.push(s); continue; }
+    }
+    segs.push({ k: s.g, sets: [s] });
+  }
+  for (const g of segs) sbPre(g.sets);
+  const shape = (g) => { const w = g.sets.filter((x) => x.round > 0 && x.round < 99), l = g.sets.filter((x) => x.round < 0);
+    const tw = Math.max(0, ...w.map((x) => x.round)), tl = Math.min(0, ...l.map((x) => x.round));
+    return `${w.filter((x) => x.round === tw).length}|${l.filter((x) => x.round === tl).length}|${g.sets.some((x) => x.round >= 99)}`; };
+  const phs = [];
+  for (const g of segs) { const p = phs[phs.length - 1]; if (p && shape(p[p.length - 1]) === shape(g) && !shape(g).endsWith("true")) p.push(g); else phs.push([g]); }
+  return phs.map((segsOf, i) => {
+    const many = phs.length > 1, pid = many ? "p" + (i + 1) : "";
+    const groups = segsOf.map((g, j) => {
+      const keep = g.sets.filter((s) => !s.bye), byes = g.sets.filter((s) => s.bye), name = segsOf.length > 1 ? "Poule " + String.fromCharCode(65 + j) : "";
+      byes.forEach((s) => { delete s.g; });
+      keep.forEach((s) => { delete s.bye; delete s.g; s.phase = pid; s.group = many || segsOf.length > 1 ? `${pid || "p1"}g${j + 1}` : ""; s.group_name = name; });
+      return { id: keep[0]?.group ?? "", name, sets: keep, byes };       // (byes : cachés, pour 🔮 la run prévue)
+    }).filter((g) => g.sets.length);
+    return { id: pid, name: !many ? "Bracket" : i === phs.length - 1 ? "Phase finale" : `Phase ${i + 1}`, type: "", groups };
+  }).filter((p) => p.groups.length);
+}
+function sbPre(sets) {                                         // (v133 : + les perdants qui tombent en losers, et la grande finale : smash_bracket.py)
+  const R = { 1: new Map(), "-1": new Map() };
+  for (const s of sets) { s.order = 0; s.pre = [null, null]; if (s.round && Math.abs(s.round) < 99) { const m = R[s.round > 0 ? 1 : -1], k = Math.abs(s.round); if (!m.has(k)) m.set(k, []); m.get(k).push(s); } }
+  for (const m of Object.values(R)) for (const l of m.values()) l.forEach((s, j) => { s.order = j + 1; });
+  const W = R[1], Lo = R["-1"], wk = [...W.keys()].sort((a, b) => a - b), lk = [...Lo.keys()].sort((a, b) => a - b);
+  const pairs = (cur, q) => cur.forEach((s, j) => { s.pre = [q[2 * j].id, q[2 * j + 1].id]; });
+  wk.forEach((k, i) => { if (!i || wk[i - 1] !== k - 1) return; const prev = W.get(wk[i - 1]), cur = W.get(k);
+    if (prev.length === 2 * cur.length) pairs(cur, prev); else if (prev.length === cur.length) cur.forEach((s, j) => { s.pre = [prev[j].id, null]; }); });
+  let qi = 0;
+  lk.forEach((k, i) => {
+    const cur = Lo.get(k), prev = i && lk[i - 1] === k - 1 ? Lo.get(lk[i - 1]) : null, q = qi < wk.length ? W.get(wk[qi]) : null;
+    if (!prev) { if (q && q.length === 2 * cur.length) { pairs(cur, q); qi++; } else if (q && q.length === cur.length) { cur.forEach((s, j) => { s.pre = [q[j].id, null]; }); qi++; } }
+    else if (prev.length === 2 * cur.length) pairs(cur, prev);
+    else if (prev.length === cur.length) { const take = !!q && q.length === cur.length; cur.forEach((s, j) => { s.pre = [prev[j].id, take ? q[q.length - 1 - j].id : null]; }); if (take) qi++; }
+  });
+  const gf = sets.filter((s) => s.round >= 99 && !/reset/i.test(s.label || ""));
+  if (gf.length && wk.length && lk.length && W.get(wk[wk.length - 1]).length === 1 && Lo.get(lk[lk.length - 1]).length === 1) gf[0].pre = [W.get(wk[wk.length - 1])[0].id, Lo.get(lk[lk.length - 1])[0].id];
 }
 /* 📡 en direct (v44) : tant que le bracket est ouvert et le tournoi en cours, il se relit seul (60 s, ou dès que
    l'appli revient au premier plan) sans perdre la phase, la poule, le joueur suivi ni la position ; les sets
@@ -463,6 +523,11 @@ function drawBracket() {
   if (!r.phases.some((p) => p.id === BK.phase)) { const ph = r.phases.slice().reverse().find((p) => p.groups.some(meIn)) || r.phases[r.phases.length - 1]; BK.phase = ph?.id; BK.group = (ph?.groups.find(meIn) || ph?.groups[0])?.id; }
   const ph = r.phases.find((p) => p.id === BK.phase), g = ph?.groups.find((x) => x.id === BK.group) || ph?.groups[0];
   const isGF = (s) => s.round > 0 && /grand/i.test(s.label);
+  /* 🔮 v133 : la run prévue (bk_proj.js) de toi ou du joueur suivi, dans ce tableau : winners, puis losers */
+  const projOn = D.cfg.bkProj !== false, pool0 = ph && g && bkpIsPool(ph);
+  const steps = projOn && g && !pool0 && (BK.hl || r.me) ? bkjRun(g.sets, bkFocus(r), g.byes || []) : null;
+  const who = BK.hl ? (g?.sets.flatMap((s) => s.slots).find((x) => x && x.id === BK.hl)?.name || "Joueur suivi") : "Toi";
+  const strip = !projOn || !g || pool0 ? "" : steps ? bkjHTML(steps, { who, goAttr: "data-bkjgo" }) : '<div class="bkj"><div class="bkj-h">🔮 <b>Run prévue</b> : touche un joueur pour voir sa run prévue.</div></div>';
   const col = (lab, l) => `<div class="bk-col"><div class="bk-rd">${esc(lab)}</div><div class="bk-sets">${l.map(bkSet).join("")}</div></div>`;
   const cmp = (a, b) => a.ident.length - b.ident.length || a.ident.localeCompare(b.ident) || (a.order || 0) - (b.order || 0);
   const side = (pos) => { const m = new Map(); for (const s of (g?.sets || [])) if ((pos ? s.round > 0 : s.round < 0) && !isGF(s)) { if (!m.has(s.round)) m.set(s.round, []); m.get(s.round).push(s); }
@@ -478,11 +543,13 @@ function drawBracket() {
       cols.push(`<div class="bk-col"><div class="bk-rd">${esc(lab)}</div>${bkPlaced([s], G, U, GAP, new Set(), bkSet)}</div>`); });
     return cols.join(""); };
   const bkSet = (s) => {
-    const me = s.slots.some((x) => x && isMeBk(x, r)), on = BK.hl && s.slots.some((x) => x && x.id === BK.hl);
-    const row = (x) => { if (!x) return '<div class="bk-p empty"><span class="bk-seed"></span><span class="bk-name">—</span></div>';
+    const me = s.slots.some((x) => x && isMeBk(x, r)), on = BK.hl && s.slots.some((x) => x && x.id === BK.hl), inRun = !!steps && steps.some((t) => t.s.id === s.id);
+    const row = (x, i) => { const pj = !x && inRun && bkjFill(steps, s, i);
+      if (pj) return `<div class="bk-p pj ${isMeBk(pj, r) ? "me" : ""}" data-bkp="${esc(pj.id)}"><span class="bk-seed">${pj.seed ?? ""}</span><span class="bk-pjm">🔮</span><span class="bk-name">${esc(pj.name)}</span><b class="bk-sc"></b></div>`;
+      if (!x) return '<div class="bk-p empty"><span class="bk-seed"></span><span class="bk-name">—</span></div>';
       const done = s.state === "done", win = done && s.winner === x.id, lose = done && s.winner && !win, sc = x.score == null ? (win ? "✓" : "") : x.score < 0 ? "DQ" : x.score;
       return `<div class="bk-p ${win ? "win" : ""} ${lose ? "lose" : ""} ${isMeBk(x, r) ? "me" : ""}" data-bkp="${esc(x.id)}"><span class="bk-seed">${x.seed ?? ""}</span><span class="bk-name">${esc(x.name)}</span><span class="bk-ch">${(s.chars[x.id] || []).slice(0, 2).map((c) => ci(c, "xs")).join("")}</span><b class="bk-sc">${sc}</b></div>`; };
-    return `<div class="bk-set ${me ? "me" : ""} ${on ? "on" : ""} ${s.state} ${BK.hl && !on ? "dim" : ""} ${BK.fresh?.has(s.id) ? "fresh" : ""}" data-bks="${esc(s.id)}">${s.state === "live" ? '<span class="bk-dot">● en cours</span>' : ""}${row(s.slots[0])}${row(s.slots[1])}</div>`; };
+    return `<div class="bk-set ${me ? "me" : ""} ${on ? "on" : ""} ${inRun && !on && !me ? "proj" : ""} ${s.state} ${BK.hl && !on && !inRun ? "dim" : ""} ${BK.fresh?.has(s.id) ? "fresh" : ""}" data-bks="${esc(s.id)}">${s.state === "live" ? '<span class="bk-dot">● en cours</span>' : ""}${row(s.slots[0], 0)}${row(s.slots[1], 1)}</div>`; };
   const pool = ph && g && bkpIsPool(ph), kind = pool ? bkpKind(ph) : "";
   const w = pool ? "" : side(true), l = pool ? "" : side(false), st = { done: "terminé", live: "en cours", next: "à venir" }[r.state];
   let pv = "";
@@ -499,9 +566,9 @@ function drawBracket() {
     ${(r.events || []).length > 1 ? `<div class="chips bk-evs"><span class="muted small">Brackets :</span>${r.events.map((x) => `<button class="stage ${x.id === String(BK.eid) ? "on" : ""}" data-act="bk-ev" data-id="${esc(x.id)}" data-name="${esc(x.name)}">${esc(x.name)}</button>`).join("")}</div>` : ""}
     ${r.phases.length > 1 || pool ? `<div class="chips">${r.phases.map((p) => `<button class="stage ${p.id === ph.id ? "on" : ""}" data-act="bk-ph" data-id="${esc(p.id)}">${esc(p.name)}${bkpPill(p) ? ` <span class="bkp-pill ${bkpKind(p)}">${bkpPill(p)}</span>` : ""}${p.groups.some(meIn) ? " ★" : ""}</button>`).join("")}</div>` : ""}
     ${ph && ph.groups.length > 1 ? `<div class="chips">${ph.groups.map((x) => `<button class="stage ${x.id === g.id ? "on" : ""}" data-act="bk-g" data-id="${esc(x.id)}">${esc(x.name || "Poule")}${meIn(x) ? " ★" : ""}</button>`).join("")}</div>` : ""}
-    ${w || l ? `<div class="bk-tools"><button class="btn small" data-act="bk-mine" ${bkTarget(r) ? "" : "disabled"}>🎯 ${BK.hl ? "Suivi" : "Moi"}</button><span class="grow"></span>
+    ${w || l ? `<div class="bk-tools"><button class="btn small" data-act="bk-mine" ${bkTarget(r) ? "" : "disabled"}>🎯 ${BK.hl ? "Suivi" : "Moi"}</button><button class="btn small bk-pj ${projOn ? "on" : ""}" data-act="bk-proj">🔮 Run prévue</button><span class="grow"></span>
       <button class="btn small" data-act="bk-z" data-z="-1" aria-label="Dézoomer">－</button><span class="bk-zv muted small" id="bk-zv">${Math.round((BK.z || 1) * 100)} %</span><button class="btn small" data-act="bk-z" data-z="1" aria-label="Zoomer">＋</button><button class="btn small" data-act="bk-fit">⤢ Tout voir</button></div>` : ""}
-    ${pv}${pool ? "" : `<div class="bk-wrap"><div class="bk-zoom" style="zoom:${BK.z || 1}">${w ? `<div class="bk-sname">Winners</div><div class="bk-cols">${w}</div>` : ""}${l ? `<div class="bk-sname">Losers</div><div class="bk-cols">${l}</div>` : ""}</div>${!w && !l ? '<div class="muted small">Pas encore de sets.</div>' : ""}</div>`}
+    ${strip}${pv}${pool ? "" : `<div class="bk-wrap"><div class="bk-zoom" style="zoom:${BK.z || 1}">${w ? `<div class="bk-sname">Winners</div><div class="bk-cols">${w}</div>` : ""}${l ? `<div class="bk-sname">Losers</div><div class="bk-cols">${l}</div>` : ""}</div>${!w && !l ? '<div class="muted small">Pas encore de sets.</div>' : ""}</div>`}
     <div class="muted small">Touche un joueur pour suivre son parcours. Glisse pour te déplacer, pince pour zoomer.</div><div class="btns">${closeBtn()}</div>`);
   bkPinch();
 }
@@ -1233,6 +1300,7 @@ document.addEventListener("click", async (e) => {
   if (e.target.id === "sheet-back") return closeSheet();
   const seg = e.target.closest("[data-seg]"); if (seg) { tourSeg = seg.dataset.seg; return render(); }
   const sc = e.target.closest("[data-scout]"); if (sc && sc.dataset.scout) { if (CUR && sc.closest("#sheet")) BACK = CUR; CUR = null; return sheetScout(sc.dataset.scout, sc.dataset.name); }
+  const bkj = e.target.closest("#sheet [data-bkjgo]"); if (bkj && BK) return bkCenter(bkj.dataset.bkjgo);
   const bkp = e.target.closest("#sheet [data-bkp]"); if (bkp && BK) { BK.hl = BK.hl === bkp.dataset.bkp ? null : bkp.dataset.bkp; const sc = $(".bk-wrap")?.scrollLeft; drawBracket(); if ($(".bk-wrap")) $(".bk-wrap").scrollLeft = sc || 0; return; }
   const op0 = e.target.closest("#sheet [data-opp]"); if (op0) { if (CUR) BACK = CUR; CUR = null; return sheetOpp(op0.dataset.opp); }
   const el = e.target.closest("[data-act]"), act = el?.dataset.act;
@@ -1250,6 +1318,7 @@ document.addEventListener("click", async (e) => {
   if (act === "bk-refresh") return refreshBracket(false);
   if (act === "bk-live") { BK.live = !BK.live; BK.next = Date.now() + BK_EVERY(); return drawBracket(); }
   if (act === "bk-me") { BK.hl = null; return drawBracket(); }
+  if (act === "bk-proj") { D.cfg.bkProj = D.cfg.bkProj === false; save(); return drawBracket(); }
   if (act === "bk-go") { BK.phase = null; return bkCenter(el.dataset.id); }      // (ouvre la phase / poule du set, et le centre)
   if (act === "day") return sheetDay(el.dataset.tid);
   if (act === "bk-mine") { const t = bkTarget(BK.data); return t ? bkCenter(t.id) : toast("Pas de set à toi dans ce bracket.", true); }
