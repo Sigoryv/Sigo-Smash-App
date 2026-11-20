@@ -90,8 +90,7 @@ function bkjFill(steps, s, i) {
 /* 🔮 v137 : la prévision continue dans les phases suivantes (poules → top 16 → top 8…). On rejoue les phases dans
    l'ordre (de la plus grande à la plus petite) ; les qualifiés prévus d'une phase (vainqueurs du dernier tour winners
    et du dernier tour losers de chaque poule, ou de la grande finale) sont placés dans les places encore vides de la
-   suivante : côté winners d'après leur seed, en placement classique (1 contre 16, 8 contre 9…), côté losers les
-   meilleures seeds le plus tard. start.gg et Shobu ne donnent pas ce placement avant la fin des poules : estimation.
+   suivante, d'après leur seed, en placement classique (1 contre 16, 8 contre 9… ; côté losers aussi, vu sur Shobu). start.gg et Shobu ne donnent pas ce placement avant la fin des poules : estimation.
    Renvoie Map « idPhase|idPoule » → rejeu de ce tableau. */
 function bkjStd(n) { let o = [1]; while (o.length < n) { const m = o.length * 2 + 1; o = o.flatMap((a) => [a, m - a]); } return o; }
 function bkjMulti(phases, isPool) {
@@ -112,7 +111,8 @@ function bkjMulti(phases, isPool) {
       const n = fw.length, pow = n && !(n & (n - 1));
       put(fw, pow ? bkjStd(n).map((r) => qw[r - 1]) : qw);
       const fl = free(-1).sort((a, b) => A(a.s) - A(b.s) || (a.s.order || 0) - (b.s.order || 0) || a.i - b.i);
-      put(fl, fl.map((_, k) => ql[fl.length - 1 - k]));        // (les meilleures seeds dans les dernières places)
+      const nl = fl.length;                                     // (v139 : comme Shobu, placement classique aussi côté losers : 17 contre 32…)
+      put(fl, nl && !(nl & (nl - 1)) ? bkjStd(nl).map((r) => ql[r - 1]) : ql);
     }
     const w = [], l = [];
     for (const g of ph.groups) {
