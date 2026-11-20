@@ -445,3 +445,26 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 .wtp-hl { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .wtp-up { padding: 3px 0; }
 .chip.live { color: var(--red, #e5534b); border-color: currentColor; }
+
+/* 🔮 v133 : la run prévue (bk_proj.js) */
+.bk-set.proj { border: 1px dashed #e8a33d; }
+.bk-p.pj { font-style: italic; opacity: .85; }
+.bk-p.pj .bk-name { color: #e8c27a; }
+.bk-p.pj.me .bk-name { color: var(--accent); }
+.bk-pjm { font-size: 10px; margin-right: 2px; }
+.bk-pj.on { border-color: #e8a33d; color: #e8c27a; }
+.bkj { background: var(--card, #16181d); border: 1px solid #e8a33d55; border-radius: 10px; padding: 8px 12px; margin: 8px 0; }
+.bkj-h { font-size: 13px; margin-bottom: 4px; }
+.bkj-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0; }
+.bkj-side { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; opacity: .65; width: 74px; flex: none; }
+.bkj-c { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px dashed #e8a33d88; background: transparent; color: inherit; cursor: pointer; }
+.bkj-c.done { border-style: solid; }
+.bkj-c.done.w, .bkj-c.w b { color: #5fd38d; }
+.bkj-c.l b, .bkj-c.done.l { color: #ff6b5f; }
+.bkj-c.live { border-color: #ff5b4f; }
+.bkj-r { opacity: .7; }
+.bkj-sd { opacity: .6; }
+.bkj-ar { opacity: .4; }
+.bkj-n { font-size: 11px; opacity: .6; }
+.bkj-c { padding: 5px 9px; }
+.bk-set.proj .bk-p.pj { font-style: italic; }
