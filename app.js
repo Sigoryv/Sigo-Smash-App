@@ -1212,21 +1212,43 @@ function sheetUp(tid) {
     shobuUpRefresh([u]).then(() => { save(); if (CUR && !$("#sheet-back").hidden) sheetUp(tid); }).catch((e) => toast(e.message, true));
   }
   const st = stats(allSets()), started = (u.start || 0) * 1000 <= Date.now();
+  upBrackets(u, tid);                                        // (🔮 v140 : le bracket de chaque épreuve, pour la run prévue complète)
   sheet(`${tourHead(u.name, u.tbanner, `${esc(fmtDay(u.start))} · <b>${started ? "commencé" : countdown(u.start)}</b>${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}`, u.url || (u.slug ? "https://www.start.gg/" + u.slug : ""))}
     ${dayOf(u) && u.events.some((ev) => ev.me) ? `<button class="btn accent" data-act="day" data-tid="${esc(u.tid)}" style="width:100%;margin-bottom:10px">🔥 Mode Jour J</button>` : ""}
     ${u.events.map((ev) => { const path = bracketPath(ev);
       let body;
       const shobu = String(ev.eid).startsWith("shobu:");
-      if (started && shobu && !liveOk(ev)) body = `<h3>🏁 Ma run</h3><div class="muted small">Tournoi Shobu : ajoute ta clé Shobu dans ⚙ pour suivre ta run en direct ici (sinon, elle est dans le Hub). ${path ? "Ta run prévue :" : ""}</div>${path ? path.map((r) => r.bye ? "" : runRow({ label: r.label, name: r.e?.tag || r.e?.name, pid: r.e?.pid, seed: r.seed, fav: r.fav, res: "next" }, st)).join("") : ""}`;
+      const full = upRunHTML(ev, st);
+      if (started && shobu && !liveOk(ev)) body = `<h3>🏁 Ma run</h3><div class="muted small">Tournoi Shobu : ta run en direct passe par le Hub (allumé) et la synchro avec lui (⚙).</div>${full}`;
       else if (started && ev.me?.id) body = `<h3>🏁 Ma run (réelle)</h3><div id="live-${esc(ev.eid)}" data-eid="${esc(ev.eid)}">${liveHTML((D.live || {})[ev.eid], st)}</div>`;
+      else if (full) body = `<h3>🔮 Ma run (prévue)</h3>${full}`;
       else if (path) body = `<h3>🔮 Ma run (prévue)</h3>${path.map((r) => r.bye ? runRow({ label: r.label, res: "bye", name: "bye (personne à cette seed)" }, st)
           : runRow({ label: r.label, name: r.e?.tag || r.e?.name, pid: r.e?.pid, seed: r.seed, fav: r.fav, res: "next" }, st)).join("")}
         <div class="muted small" style="margin-top:6px">Projection : bracket unique où la meilleure seed gagne toujours (côté winners). Avec des poules, l'ordre réel diffère.</div>`;
       else body = `<div class="muted small">${ev.seeded ? "Tu n'es pas dans la liste seedée." : shobu && !ev.me ? "Inscrit (coché dans le Hub) : ta run prévue apparaîtra quand le bracket Shobu sera publié." : "Seeds pas encore publiées : ta run prévue apparaîtra ici."}</div>`;
       return `<div class="card"><h3>${esc(ev.name)} · ${ev.entrants} inscrits ${ev.me?.seed ? `· <span class="chip">ta seed ${ev.me.seed}</span>` : ""}</h3>${body}
         <button class="btn" data-act="bracket" data-eid="${esc(ev.eid)}" data-title="${esc(u.name + " · " + ev.name)}" style="width:100%;margin-top:8px">🏆 Voir le bracket</button></div>`; }).join("")}
-    <div class="btns">${closeBtn()}</div>`);
+    <div class="btns" data-up-sheet="${esc(tid)}">${closeBtn()}</div>`);
   if (started) loadLive(u);
+}
+/* 🔮 v140 : la run prévue d'une épreuve dans son vrai bracket (poules, winners, losers, phases suivantes : bk_proj.js),
+   comme dans la vue bracket ; sinon (bracket pas encore là), l'ancienne projection par les seeds. */
+function upRunHTML(ev, st) {
+  const r = (D.brackets || {})[ev.eid]; if (!r || !r.me) return "";
+  const blocks = bkjRunAll(r, (x) => isMeBk(x, r), bkpIsPool); if (!blocks.length) return "";
+  const seen = new Set(), opps = blocks.flatMap((b) => b.steps).filter((t) => t.opp && !seen.has(t.opp.id) && seen.add(t.opp.id));   // (un adversaire prévu → son scouting)
+  return opps.map((t) => runRow({ label: t.s.label || (t.side === "l" ? "Losers " : "") + "Tour " + Math.abs(t.s.round), name: t.opp.name, pid: t.opp.pid, seed: t.opp.seed, res: t.done ? t.res : "next" }, st)).join("")
+    + blocks.map((b) => `${r.phases.length > 1 ? `<div class="muted small" style="margin-top:6px"><b>${esc(b.ph.name)}${b.ph.groups.length > 1 && b.g.name ? " · " + esc(b.g.name) : ""}</b></div>` : ""}${bkjHTML(b.steps, { who: "Toi", goAttr: `data-eid="${esc(ev.eid)}" data-act="bracket" data-title="${esc(r.name || "Bracket")}" data-set` })}`).join("");
+}
+async function upBrackets(u, tid) {
+  for (const ev of u.events || []) {
+    const r = (D.brackets || {})[ev.eid];
+    if (r && now() - (r.got || r.at || 0) < 600) continue;          // (relu au plus toutes les 10 min)
+    if (String(ev.eid).startsWith("shobu:") ? !hubOk() : !D.cfg.sgToken) continue;
+    try { const b = await loadBracket(ev.eid); b.got = now(); D.brackets = Object.fromEntries(Object.entries({ ...(D.brackets || {}), [ev.eid]: b }).slice(-5)); save(); }
+    catch (_) { continue; }
+    if (CUR && !$("#sheet-back").hidden && document.querySelector(`#sheet [data-up-sheet="${CSS.escape(tid)}"]`)) sheetUp(tid);
+  }
 }
 async function loadLive(u) {
   const st = stats(allSets());
