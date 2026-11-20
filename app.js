@@ -532,9 +532,10 @@ function drawBracket() {
   const isGF = (s) => s.round > 0 && /grand/i.test(s.label);
   /* 🔮 v133 : la run prévue (bk_proj.js) de toi ou du joueur suivi, dans ce tableau : winners, puis losers */
   const projOn = D.cfg.bkProj !== false, pool0 = ph && g && bkpIsPool(ph);
-  const steps = projOn && g && !pool0 && (BK.hl || r.me) ? bkjRun(g.sets, bkFocus(r), g.byes || []) : null;
+  if (projOn && BK.projOf !== r) { BK.projOf = r; BK.projAll = bkjMulti(r.phases, bkpIsPool); }      // (v137 : la prévision continue de phase en phase)
+  const pr = projOn && g && !pool0 ? BK.projAll.get(`${ph.id}|${g.id}`) || bkjAll(g.sets, g.byes || []) : null;
+  const steps = projOn && g && !pool0 && (BK.hl || r.me) ? bkjRun(g.sets, bkFocus(r), g.byes || [], pr) : null;
   const who = BK.hl ? (g?.sets.flatMap((s) => s.slots).find((x) => x && x.id === BK.hl)?.name || "Joueur suivi") : "Toi";
-  const pr = projOn && g && !pool0 ? bkjAll(g.sets, g.byes || []) : null;      // (v136 : tout le tableau prévu)
   const strip = !projOn || !g || pool0 ? "" : steps?.length ? bkjHTML(steps, { who, goAttr: "data-bkjgo" }) : `<div class="bkj"><div class="bkj-h">🔮 <b>Run prévue</b> : tout le tableau est rempli (🔮), la meilleure seed gagnant chaque set à venir (↗ = vainqueur prévu). ${steps ? esc(who) + " n'est pas dans ce tableau." : "Touche un joueur pour voir sa run."}</div></div>`;
   const col = (lab, l) => `<div class="bk-col"><div class="bk-rd">${esc(lab)}</div><div class="bk-sets">${l.map(bkSet).join("")}</div></div>`;
   const cmp = (a, b) => a.ident.length - b.ident.length || a.ident.localeCompare(b.ident) || (a.order || 0) - (b.order || 0);
