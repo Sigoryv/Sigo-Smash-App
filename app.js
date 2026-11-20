@@ -187,6 +187,7 @@ async function syncStartgg() {
     if (evs.length) out.push({ tid: String(t.id), name: t.name, slug: t.slug, start: t.startAt, city: t.city || "", online: !!t.isOnline, attendees: t.numAttendees || 0, timg, tbanner, events: evs });
   }
   const shobu = (D.upcoming?.tournaments || []).filter((t) => t.src === "shobu");      // (les tournois Shobu viennent du Hub : on les garde)
+  await shobuUpRefresh(shobu);                                                          // (v131 : et le téléphone relit leurs inscrits, avec sa clé)
   D.upcoming = { at: now(), me, tournaments: [...out, ...shobu].sort((a, b) => (a.start || 0) - (b.start || 0)) };
   D.lastSg = new Date().toISOString(); D.source = "phone"; save();
   prefetchScouts();
@@ -263,6 +264,42 @@ async function shobuLive(ev) {
   const res = { at: now(), state: state === "COMPLETED" ? "COMPLETED" : "ACTIVE", sets: rows, out: losses >= 2 || (losses >= 1 && state === "COMPLETED") };
   D.live = D.live || {}; D.live[ev.eid] = res; save();
   return res;
+}
+
+/* 🥋 (v131) les inscrits et les seeds d'un tournoi Shobu à venir, relus par le téléphone : le bracket, sinon les
+   inscriptions si l'API Shobu les donne (une adresse absente est ignorée). Le Hub ne les relit que de temps en temps. */
+async function sbGet(path) {
+  let r;
+  try { r = await fetch(`${SB()}${path}`, { headers: { Authorization: "Bearer " + D.cfg.shobuKey, Accept: "application/json" }, cache: "no-store" }); }
+  catch (_) { return null; }
+  if (r.status === 401) throw new Error("Clé Shobu refusée (⚙ Réglages).");
+  return r.ok ? r.json() : null;
+}
+function sbList(d) {
+  if (Array.isArray(d)) return d.filter((x) => x && typeof x === "object");
+  for (const k of ["entrants", "participants", "registrations", "players", "data", "items", "results"]) { const v = d?.[k]; if (Array.isArray(v)) return v; if (v && typeof v === "object") { const i = sbList(v); if (i.length) return i; } }
+  return [];
+}
+async function shobuUpRefresh(tours) {
+  if (!D.cfg.shobuKey || !D.cfg.shobuUser) return;
+  for (const t of tours) {
+    if ((t.start || 0) * 1000 < Date.now() - 86400e3 || (t.start || 0) * 1000 > Date.now() + 14 * 86400e3) continue;
+    for (const ev of t.events || []) {
+      try {
+        const id = encodeURIComponent(String(ev.eid).slice(6)), br = await sbGet(`/events/${id}/bracket`) || {};
+        let raw = []; const seen = new Set();
+        for (const s of br.sets || []) for (const x of s.slots || []) { const e = x?.entrant; if (e && !x.isBye && !seen.has(String(e.id))) { seen.add(String(e.id)); raw.push(e); } }
+        for (const path of ["entrants", "participants", "registrations"]) { if (raw.length) break; raw = sbList(await sbGet(`/events/${id}/${path}?perPage=500`)); }
+        if (!raw.length) continue;
+        const list = raw.map((e) => { const p = e.player || e.user || {}, spid = "shobu:" + norm(p.username || e.name);
+          return { id: String(e.id || ""), name: e.name || p.username || "?", seed: e.seed ?? e.seedNumber ?? null, pid: sgIdForTag(spid, e.name) || spid, tag: String(e.name || p.username || "").split(" | ").pop(), _me: isMe(e, D.cfg.shobuUser) }; })
+          .sort((a, b) => (a.seed || 9999) - (b.seed || 9999));
+        const me = list.find((x) => x._me) || null; list.forEach((x) => delete x._me);
+        Object.assign(ev, { list, me, entrants: list.length, seeded: list.some((x) => x.seed) });
+        if (me) t.auto = true;
+      } catch (e) { if (/refusée/.test(e.message)) throw e; }
+    }
+  }
 }
 
 /* ------------------------------------------------------------ 🏆 le bracket d'une épreuve (v42 : le même que dans le Hub) */
@@ -1085,6 +1122,11 @@ async function dayFetch(u, evs, started) {
 function sheetUp(tid) {
   const u = ups().find((x) => x.tid === tid); if (!u) return;
   CUR = () => sheetUp(tid);
+  // 🥋 (v131) un tournoi Shobu : ses inscrits relus à l'ouverture (au plus toutes les 5 min), puis la fiche redessinée
+  if (u.src === "shobu" && D.cfg.shobuKey && now() - (u._sb_at || 0) > 300) {
+    u._sb_at = now();
+    shobuUpRefresh([u]).then(() => { save(); if (CUR && !$("#sheet-back").hidden) sheetUp(tid); }).catch((e) => toast(e.message, true));
+  }
   const st = stats(allSets()), started = (u.start || 0) * 1000 <= Date.now();
   sheet(`${tourHead(u.name, u.tbanner, `${esc(fmtDay(u.start))} · <b>${started ? "commencé" : countdown(u.start)}</b>${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}`, u.url || (u.slug ? "https://www.start.gg/" + u.slug : ""))}
     ${dayOf(u) && u.events.some((ev) => ev.me) ? `<button class="btn accent" data-act="day" data-tid="${esc(u.tid)}" style="width:100%;margin-bottom:10px">🔥 Mode Jour J</button>` : ""}
