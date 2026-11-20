@@ -84,7 +84,7 @@ function wtpPlayer(t, e, x, st) {
     ${live ? `<div class="muted small">en direct · lu ${ago(new Date(live.at * 1000).toISOString())}</div>` : ""}</div>`;
 }
 /* ⟳ la run des joueurs suivis, relue directement sur start.gg (même requête que « ma run en direct ») */
-const canLive = (e) => String(e?.eid || "").startsWith("shobu:") ? !!D.cfg.shobuKey : !!D.cfg.sgToken;     // (🥋 v131 : Shobu avec sa clé)
+const canLive = (e) => String(e?.eid || "").startsWith("shobu:") ? hubOk() : !!D.cfg.sgToken;     // (🥋 v135 : Shobu via le Hub)
 async function wtpLive(t, e) {
   D.wlive = D.wlive || {};
   if (String(e.eid).startsWith("shobu:")) return wtpLiveShobu(t, e);
@@ -109,12 +109,11 @@ async function wtpLive(t, e) {
   save();
   if (n && CUR && !$("#sheet-back").hidden) sheetWatch(t.id, true);
 }
-/* 🥋 (v131) un tournoi Shobu suivi : un seul bracket relu (clé Shobu du téléphone), la run de chaque joueur suivi */
+/* 🥋 (v131 → v135) un tournoi Shobu suivi : son bracket, relu par le Hub (synchro), la run de chaque joueur suivi */
 async function wtpLiveShobu(t, e) {
-  if (!D.cfg.shobuKey) { toast("Ajoute ta clé Shobu (⚙) pour suivre les runs en direct ici.", true); return; }
   let d;
-  try { d = await sbGet(`/events/${encodeURIComponent(String(e.eid).slice(6))}/bracket`); } catch (er) { toast(er.message, true); return; }
-  if (!d) { toast("Bracket Shobu illisible pour l'instant.", true); return; }
+  try { d = await sbRaw(e.eid); } catch (er) { toast(er.message, true); return; }
+  if (!d) { toast(SB_MISSING, true); return; }
   let n = 0;
   for (const x of e.followed || []) {
     if (!x.id) continue;
