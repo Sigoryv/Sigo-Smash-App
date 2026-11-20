@@ -9,7 +9,7 @@
    ===================================================================== */
 const BKJ_BYE = null;                                         // (personne : un bye)
 /* le rejeu : id du set → { slots: [joueur | null (bye) | undefined (inconnu)], w, l } */
-function bkjProject(sets) {
+function bkjProject(sets, inject) {
   const by = new Map(sets.map((s) => [String(s.id), s])), memo = new Map();
   const seedOf = (x) => (x && x.seed != null ? +x.seed : 1e9);
   const P = (id) => {
@@ -18,7 +18,7 @@ function bkjProject(sets) {
     const s = by.get(id); if (!s) return out;
     const reset = /reset/i.test(s.label || "");
     out.slots = [0, 1].map((i) => {
-      const x = s.slots[i]; if (x) return x;
+      const x = s.slots[i] || inject?.get(id)?.[i]; if (x) return x;     // (v137 : un qualifié prévu d'une phase d'avant)
       if (s.bslot?.[i]) return BKJ_BYE;                       // (Shobu : ce côté est un bye)
       const p = s.pre?.[i]; if (!p || reset) return undefined;
       const c = by.get(String(p)); if (!c) return BKJ_BYE;     // (le set d'avant n'existe pas : un bye retiré)
@@ -38,8 +38,8 @@ function bkjProject(sets) {
 }
 /* la run prévue de celui pour qui isMe(x) est vrai : ses sets dans le rejeu, winners puis losers puis grande finale.
    byes : les sets à bye du tableau (cachés à l'écran, mais ils font passer leur joueur au tour suivant) */
-function bkjRun(sets, isMe, byes = []) {
-  const pr = bkjProject(sets.concat(byes)), A = (s) => Math.abs(s.round);
+function bkjRun(sets, isMe, byes = [], pr0 = null) {
+  const pr = pr0 || bkjProject(sets.concat(byes)), A = (s) => Math.abs(s.round);
   const kind = (s) => (s.round >= 99 || /grand/i.test(s.label || "") ? 2 : s.round > 0 ? 0 : 1);
   const ord = sets.filter((s) => !s.bye && !/reset/i.test(s.label || "")).slice().sort((a, b) => kind(a) - kind(b) || A(a) - A(b) || (a.order || 0) - (b.order || 0));
   const steps = [];
@@ -85,4 +85,47 @@ function bkjWin(pr, s) {
 function bkjFill(steps, s, i) {
   const t = steps.find((x) => x.s.id === s.id);
   return t && !s.slots[i] && t.p.slots[i] ? t.p.slots[i] : null;
+}
+
+/* 🔮 v137 : la prévision continue dans les phases suivantes (poules → top 16 → top 8…). On rejoue les phases dans
+   l'ordre (de la plus grande à la plus petite) ; les qualifiés prévus d'une phase (vainqueurs du dernier tour winners
+   et du dernier tour losers de chaque poule, ou de la grande finale) sont placés dans les places encore vides de la
+   suivante : côté winners d'après leur seed, en placement classique (1 contre 16, 8 contre 9…), côté losers les
+   meilleures seeds le plus tard. start.gg et Shobu ne donnent pas ce placement avant la fin des poules : estimation.
+   Renvoie Map « idPhase|idPoule » → rejeu de ce tableau. */
+function bkjStd(n) { let o = [1]; while (o.length < n) { const m = o.length * 2 + 1; o = o.flatMap((a) => [a, m - a]); } return o; }
+function bkjMulti(phases, isPool) {
+  const out = new Map(), seedOf = (x) => (x && x.seed != null ? +x.seed : 1e9), A = (s) => Math.abs(s.round);
+  const list = (phases || []).filter((p) => !(isPool && isPool(p))).map((p, i) => ({ p, i, n: p.groups.reduce((a, g) => a + g.sets.length + (g.byes || []).length, 0) }))
+    .sort((a, b) => b.n - a.n || a.i - b.i).map((x) => x.p);
+  let carry = null;
+  for (const ph of list) {
+    const inject = new Map();
+    if (carry) {
+      const placed = new Set(ph.groups.flatMap((g) => g.sets.flatMap((s) => s.slots.filter(Boolean).map((x) => x.id))));
+      const free = (side) => ph.groups.flatMap((g) => g.sets.filter((s) => side * s.round > 0 && s.round < 99 && !/reset|grand/i.test(s.label || ""))
+        .flatMap((s) => [0, 1].filter((i) => !s.slots[i] && !s.pre?.[i]).map((i) => ({ s, i }))));
+      const put = (slots, q) => slots.forEach((sl, k) => { if (!q[k]) return; const a = inject.get(String(sl.s.id)) || [null, null]; a[sl.i] = q[k]; inject.set(String(sl.s.id), a); });
+      const qw = carry.w.filter((x) => !placed.has(x.id)).sort((a, b) => seedOf(a) - seedOf(b));
+      const ql = carry.l.filter((x) => !placed.has(x.id)).sort((a, b) => seedOf(a) - seedOf(b));
+      const fw = free(1).sort((a, b) => A(a.s) - A(b.s) || (a.s.order || 0) - (b.s.order || 0) || a.i - b.i);
+      const n = fw.length, pow = n && !(n & (n - 1));
+      put(fw, pow ? bkjStd(n).map((r) => qw[r - 1]) : qw);
+      const fl = free(-1).sort((a, b) => A(a.s) - A(b.s) || (a.s.order || 0) - (b.s.order || 0) || a.i - b.i);
+      put(fl, fl.map((_, k) => ql[fl.length - 1 - k]));        // (les meilleures seeds dans les dernières places)
+    }
+    const w = [], l = [];
+    for (const g of ph.groups) {
+      const pr = bkjProject(g.sets.concat(g.byes || []), inject);
+      out.set(`${ph.id}|${g.id}`, pr);
+      const all = g.sets.concat(g.byes || []), P = (s) => pr.get(String(s.id));
+      const gf = all.find((s) => s.round >= 99 && !/reset/i.test(s.label || ""));
+      if (gf) { if (P(gf)?.w) w.push(P(gf).w); continue; }
+      const top = (side) => { const ss = all.filter((s) => side * s.round > 0 && s.round < 99); const m = Math.max(0, ...ss.map(A)); return ss.filter((s) => A(s) === m); };
+      for (const s of top(1)) if (P(s)?.w) w.push(P(s).w);
+      for (const s of top(-1)) if (P(s)?.w) l.push(P(s).w);
+    }
+    carry = { w, l };
+  }
+  return out;
 }
