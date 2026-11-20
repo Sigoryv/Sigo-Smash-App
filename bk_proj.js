@@ -129,3 +129,17 @@ function bkjMulti(phases, isPool) {
   }
   return out;
 }
+
+/* 🔮 v140 : ta run prévue dans tout le bracket (poules, winners, losers, phases suivantes), phase après phase :
+   [{ ph, g, steps }] dans l'ordre où on les joue. (La fiche d'un tournoi sur le téléphone.) */
+function bkjRunAll(r, isMe, isPool) {
+  const M = bkjMulti(r.phases, isPool), out = [];
+  const n = (p) => p.groups.reduce((a, g) => a + g.sets.length + (g.byes || []).length, 0);
+  const order = (r.phases || []).filter((p) => !(isPool && isPool(p))).map((p, i) => ({ p, i })).sort((a, b) => n(b.p) - n(a.p) || a.i - b.i).map((x) => x.p);
+  for (const ph of order) for (const g of ph.groups) {
+    const pr = M.get(`${ph.id}|${g.id}`); if (!pr) continue;
+    const steps = bkjRun(g.sets, isMe, g.byes || [], pr);
+    if (steps.length) out.push({ ph, g, steps });
+  }
+  return out;
+}
