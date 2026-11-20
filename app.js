@@ -227,10 +227,27 @@ async function scout(pid, refresh) {
 
 /* les tournois à venir ; « en cours » depuis plus d'une semaine = l'orga a oublié de le clore : il passe dans les Passés */
 const ups = () => (D.upcoming?.tournaments || []).filter((u) => (u.start || 0) * 1000 >= Date.now() - 7 * 864e5);
-const liveOk = (ev) => !!ev.me?.id && (String(ev.eid).startsWith("shobu:") ? !!(D.cfg.shobuKey && D.cfg.shobuUser) : !!D.cfg.sgToken);
+const liveOk = (ev) => !!ev.me?.id && (String(ev.eid).startsWith("shobu:") ? hubOk() : !!D.cfg.sgToken);
 
-/* ------------------------------------------------------------ 🥋 Shobu en direct (clé sur le téléphone) */
-const SB = () => localStorage.getItem("sigo.dev.sb") || "https://api.shobuapp.fr/api/public/v1";
+/* ------------------------------------------------------------ 🥋 Shobu, via le Hub (v135)
+   L'API de Shobu n'autorise pas les pages web (pas de CORS) : l'appli ne peut pas la lire, même avec une clé. Le Hub
+   (allumé) relit les brackets Shobu utiles et les dépose, chiffrés, dans le dépôt de la synchro (shobu.enc.json) :
+   chaque minute pendant un tournoi en cours. L'appli les lit là (gardés 30 s). */
+const hubOk = () => !!(D.cfg.repo && D.cfg.ghToken && D.cfg.pass);
+let SBH = { at: 0, d: null };
+async function sbHub(force) {
+  if (!hubOk()) throw new Error("Shobu passe par le Hub : règle d'abord la synchro avec le Hub (⚙).");
+  if (!force && SBH.d && Date.now() - SBH.at < 30e3) return SBH.d;
+  const { obj } = await ghGet("shobu.enc.json");
+  SBH = { at: Date.now(), d: obj ? await decrypt(obj) : { brackets: {} } };
+  return SBH.d;
+}
+/* le bracket Shobu d'une épreuve (format de l'API), tel que le Hub l'a lu ; null s'il ne l'a pas */
+async function sbRaw(eid) {
+  const d = await sbHub(), b = (d.brackets || {})[String(eid).replace(/^shobu:/, "")];
+  return b ? { ...b, hubAt: d.at } : null;
+}
+const SB_MISSING = "Bracket Shobu pas encore reçu du Hub. Shobu ne laisse pas l'appli le lire directement : le Hub (allumé) l'envoie pour tes tournois Shobu suivis (📺) ou où tu es inscrit, chaque minute pendant le tournoi.";
 const norm = (x) => String(x || "").replace(/\s+/g, " ").trim().toLowerCase();
 function isMe(e, user) {
   if (!e || !user) return false;
@@ -243,13 +260,8 @@ function sgIdForTag(pid, name) {          // 🔗 même pseudo sur start.gg : sa
   return hits.size === 1 ? [...hits][0] : "";
 }
 async function shobuLive(ev) {
-  let r;
-  try { r = await fetch(`${SB()}/events/${encodeURIComponent(String(ev.eid).slice(6))}/bracket`, { headers: { Authorization: "Bearer " + D.cfg.shobuKey, Accept: "application/json" }, cache: "no-store" }); }
-  catch (_) { throw new Error("Shobu injoignable depuis le téléphone (réseau, ou Shobu refuse le navigateur)."); }
-  if (r.status === 401) throw new Error("Clé Shobu refusée (⚙ Réglages).");
-  if (r.status === 429) throw new Error("Shobu : trop de requêtes, réessaie dans un instant.");
-  if (!r.ok) throw new Error("Shobu a répondu " + r.status);
-  const d = await r.json(), user = D.cfg.shobuUser, rows = [];
+  const d = await sbRaw(ev.eid); if (!d) throw new Error(SB_MISSING);
+  const user = D.cfg.shobuUser, rows = [];
   for (const s of d.sets || []) {
     const slots = (s.slots || []).filter(Boolean), mine = slots.find((x) => isMe(x.entrant, user)); if (!mine) continue;
     const opp = slots.find((x) => x !== mine) || {}; if (opp.isBye) continue;
@@ -268,36 +280,21 @@ async function shobuLive(ev) {
 
 /* 🥋 (v131) les inscrits et les seeds d'un tournoi Shobu à venir, relus par le téléphone : le bracket, sinon les
    inscriptions si l'API Shobu les donne (une adresse absente est ignorée). Le Hub ne les relit que de temps en temps. */
-async function sbGet(path) {
-  let r;
-  try { r = await fetch(`${SB()}${path}`, { headers: { Authorization: "Bearer " + D.cfg.shobuKey, Accept: "application/json" }, cache: "no-store" }); }
-  catch (_) { return null; }
-  if (r.status === 401) throw new Error("Clé Shobu refusée (⚙ Réglages).");
-  return r.ok ? r.json() : null;
-}
-function sbList(d) {
-  if (Array.isArray(d)) return d.filter((x) => x && typeof x === "object");
-  for (const k of ["entrants", "participants", "registrations", "players", "data", "items", "results"]) { const v = d?.[k]; if (Array.isArray(v)) return v; if (v && typeof v === "object") { const i = sbList(v); if (i.length) return i; } }
-  return [];
-}
-async function shobuUpRefresh(tours) {
-  if (!D.cfg.shobuKey || !D.cfg.shobuUser) return;
+async function shobuUpRefresh(tours) {          // (v131 → v135 : les inscrits et seeds d'un tournoi Shobu, depuis le bracket relu par le Hub)
+  if (!hubOk() || !D.cfg.shobuUser) return;
   for (const t of tours) {
     if ((t.start || 0) * 1000 < Date.now() - 86400e3 || (t.start || 0) * 1000 > Date.now() + 14 * 86400e3) continue;
     for (const ev of t.events || []) {
-      try {
-        const id = encodeURIComponent(String(ev.eid).slice(6)), br = await sbGet(`/events/${id}/bracket`) || {};
-        let raw = []; const seen = new Set();
-        for (const s of br.sets || []) for (const x of s.slots || []) { const e = x?.entrant; if (e && !x.isBye && !seen.has(String(e.id))) { seen.add(String(e.id)); raw.push(e); } }
-        for (const path of ["entrants", "participants", "registrations"]) { if (raw.length) break; raw = sbList(await sbGet(`/events/${id}/${path}?perPage=500`)); }
-        if (!raw.length) continue;
-        const list = raw.map((e) => { const p = e.player || e.user || {}, spid = "shobu:" + norm(p.username || e.name);
-          return { id: String(e.id || ""), name: e.name || p.username || "?", seed: e.seed ?? e.seedNumber ?? null, pid: sgIdForTag(spid, e.name) || spid, tag: String(e.name || p.username || "").split(" | ").pop(), _me: isMe(e, D.cfg.shobuUser) }; })
-          .sort((a, b) => (a.seed || 9999) - (b.seed || 9999));
-        const me = list.find((x) => x._me) || null; list.forEach((x) => delete x._me);
-        Object.assign(ev, { list, me, entrants: list.length, seeded: list.some((x) => x.seed) });
-        if (me) t.auto = true;
-      } catch (e) { if (/refusée/.test(e.message)) throw e; }
+      const br = await sbRaw(ev.eid); if (!br) continue;
+      const raw = [], seen = new Set();
+      for (const s of br.sets || []) for (const x of s.slots || []) { const e = x?.entrant; if (e && !x.isBye && !seen.has(String(e.id))) { seen.add(String(e.id)); raw.push(e); } }
+      if (!raw.length) continue;
+      const list = raw.map((e) => { const p = e.player || {}, spid = "shobu:" + norm(p.username || e.name);
+        return { id: String(e.id || ""), name: e.name || p.username || "?", seed: e.seed ?? null, pid: sgIdForTag(spid, e.name) || spid, tag: String(e.name || p.username || "").split(" | ").pop(), _me: isMe(e, D.cfg.shobuUser) }; })
+        .sort((a, b) => (a.seed || 9999) - (b.seed || 9999));
+      const me = list.find((x) => x._me) || null; list.forEach((x) => delete x._me);
+      Object.assign(ev, { list, me, entrants: list.length, seeded: list.some((x) => x.seed) });
+      if (me) t.auto = true;
     }
   }
 }
@@ -341,10 +338,8 @@ async function loadBracket(eid) {
   }
 }
 async function shobuBracket(eid) {
-  if (!D.cfg.shobuKey) throw new Error("Ajoute ta clé Shobu dans ⚙ pour voir ce bracket.");
-  const r = await fetch(`${SB()}/events/${encodeURIComponent(String(eid).slice(6))}/bracket`, { headers: { Authorization: "Bearer " + D.cfg.shobuKey, Accept: "application/json" }, cache: "no-store" });
-  if (!r.ok) throw new Error("Shobu a répondu " + r.status);
-  const d = await r.json(), me = norm(D.cfg.shobuUser || "");
+  const d = await sbRaw(eid); if (!d) throw new Error(SB_MISSING);
+  const me = norm(D.cfg.shobuUser || "");
   const rd = (name) => { const n = String(name || "").toLowerCase(), m = n.match(/round\s*(\d+)/); let k = m ? +m[1] : n.includes("quarter") ? 90 : n.includes("semi") ? 91 : n.includes("final") ? 92 : 50; if (n.includes("grand")) k = 99 + (n.includes("reset") ? 1 : 0); return n.includes("loser") ? -k : k; };
   const sets = (d.sets || []).map((x) => {
     const slots = [0, 1].map((i) => { const y = (x.slots || [])[i], e = y?.entrant; return e ? { id: "shobu:" + norm(e.player?.username || e.name), name: e.name || e.player?.username || "?", seed: e.seed, pid: "", score: y.score } : null; });
@@ -353,7 +348,7 @@ async function shobuBracket(eid) {
              bye: (x.slots || []).some((y) => y?.isBye), bslot: [0, 1].map((i) => !!(x.slots || [])[i]?.isBye), g: sbGroupKey(x) };
   });
   const phases = sbLayout(sets), all = phases.flatMap((p) => p.groups.flatMap((g) => g.sets));
-  return { eid, name: d.event?.name || "Bracket", tournament: "", state: all.length && all.every((x) => x.state === "done") ? "done" : "live", me: me ? "shobu:" + me : "", phases, at: now() };
+  return { eid, name: d.event?.name || "Bracket", tournament: "", state: all.length && all.every((x) => x.state === "done") ? "done" : "live", me: me ? "shobu:" + me : "", phases, at: d.hubAt || now() };
 }
 /* 🧩 v132 : un bracket Shobu en plusieurs tableaux (poules, puis phase finale…) : chaque tableau recommence à
    « Winners Round 1 ». On les sépare (champ de poule s'il existe, sinon dès qu'un tableau repart au 1er tour), on
@@ -647,7 +642,7 @@ function runNews(before, r) {
   return { text: parts.join(" → "), pid };
 }
 async function pollLive() {
-  if (document.hidden || (!D.cfg.sgToken && !D.cfg.shobuKey)) return;
+  if (document.hidden || (!D.cfg.sgToken && !hubOk())) return;
   const lt = liveTournaments(); if (!lt.length) return;
   for (const u of lt) for (const ev of u.events) {
     if (!liveOk(ev)) continue;
@@ -868,7 +863,7 @@ async function syncCloud() {
       D.upcoming = { ...(D.upcoming || { at: s.upcoming.at, me: s.upcoming.me }), tournaments: [...mine, ...sh].sort((a, b) => (a.start || 0) - (b.start || 0)) };
     }
   }
-  D.lastCloud = new Date().toISOString(); save();
+  D.lastCloud = new Date().toISOString(); SBH.at = 0; save();      // (🥋 v135 : les brackets Shobu du Hub, relus à la prochaine demande)
   return { got, sent, snapUsed };
 }
 let cloudT = null;
@@ -909,7 +904,7 @@ function renderView() {
   const p = D.player;
   $("#title").textContent = p ? (p.prefix ? p.prefix + " | " : "") + p.tag : "Sigo Hub";
   const v = $("#view");
-  if (!D.cfg.sgToken && !D.cfg.repo && !D.cfg.shobuKey) { v.innerHTML = viewWelcome(); return; }
+  if (!D.cfg.sgToken && !D.cfg.repo) { v.innerHTML = viewWelcome(); return; }
   v.innerHTML = (TABS[D.tab] || viewHome)();
   bindView();
 }
@@ -1202,7 +1197,7 @@ function sheetUp(tid) {
   const u = ups().find((x) => x.tid === tid); if (!u) return;
   CUR = () => sheetUp(tid);
   // 🥋 (v131) un tournoi Shobu : ses inscrits relus à l'ouverture (au plus toutes les 5 min), puis la fiche redessinée
-  if (u.src === "shobu" && D.cfg.shobuKey && now() - (u._sb_at || 0) > 300) {
+  if (u.src === "shobu" && hubOk() && now() - (u._sb_at || 0) > 60) {
     u._sb_at = now();
     shobuUpRefresh([u]).then(() => { save(); if (CUR && !$("#sheet-back").hidden) sheetUp(tid); }).catch((e) => toast(e.message, true));
   }
@@ -1295,9 +1290,9 @@ function sheetSettings() {
       <label>Mot de passe de synchro (le même que dans le Hub)</label><input type="password" id="s-pw" autocomplete="off" placeholder="${c.pass ? "•••••• (enregistré)" : "8 caractères au moins"}"></div>
     <div class="card"><h3>🗺 Stages</h3><label>Starters de ton ruleset (séparés par des virgules)</label><input type="text" id="s-starters" value="${esc(starters().join(", "))}">
       <label>Counterpicks</label><input type="text" id="s-cps" value="${esc(counterpicks().join(", "))}"></div>
-    <div class="card"><h3>🥋 Shobu (facultatif : ta run en direct sur les tournois Shobu)</h3><label>Ton pseudo Shobu</label><input type="text" id="s-sbu" autocapitalize="off" value="${esc(c.shobuUser || "")}">
-      <label>Clé API Shobu</label><input type="password" id="s-sbk" autocomplete="off" placeholder="${c.shobuKey ? "•••••• (enregistrée)" : "shobu_pk_…"}"></div>
-    <div class="muted small">Tout reste sur ce téléphone. Les jetons et la clé ne quittent l'appli que vers start.gg, GitHub et Shobu. En cas de perte du téléphone : révoque-les (start.gg, GitHub, Shobu).</div>
+    <div class="card"><h3>🥋 Shobu</h3><label>Ton pseudo Shobu</label><input type="text" id="s-sbu" autocapitalize="off" value="${esc(c.shobuUser || "")}">
+      <div class="muted small">Shobu ne laisse pas une appli web lire son API : c'est le Hub (allumé) qui relit les brackets Shobu et te les envoie par la synchro chiffrée. Pas de clé Shobu sur le téléphone.</div></div>
+    <div class="muted small">Tout reste sur ce téléphone. Les jetons ne quittent l'appli que vers start.gg et GitHub. En cas de perte du téléphone : révoque-les (start.gg, GitHub).</div>
     <div class="btns"><button class="btn danger" data-act="reset">Tout effacer</button><button class="btn accent" data-act="save-settings">Enregistrer</button></div>`);
 }
 
@@ -1378,7 +1373,7 @@ document.addEventListener("click", async (e) => {
     const pw = $("#s-pw").value; if (pw && pw.length < 8) return toast("Mot de passe : 8 caractères au moins.", true);
     const list = (id) => $(id).value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
     c.starters = list("#s-starters"); c.cps = list("#s-cps");
-    c.shobuUser = $("#s-sbu").value.trim().replace(/^@/, "").slice(0, 40); if ($("#s-sbk").value.trim()) c.shobuKey = $("#s-sbk").value.trim();
+    c.shobuUser = $("#s-sbu").value.trim().replace(/^@/, "").slice(0, 40); delete c.shobuKey;
     Object.assign(c, { profile: prof, repo, sgToken: $("#s-sg").value.trim() || c.sgToken, ghToken: $("#s-gh").value.trim() || c.ghToken, pass: pw || c.pass });
     save(); closeSheet(); toast("Enregistré : synchronisation…"); return syncAll();
   }
