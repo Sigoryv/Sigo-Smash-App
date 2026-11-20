@@ -534,7 +534,8 @@ function drawBracket() {
   const projOn = D.cfg.bkProj !== false, pool0 = ph && g && bkpIsPool(ph);
   const steps = projOn && g && !pool0 && (BK.hl || r.me) ? bkjRun(g.sets, bkFocus(r), g.byes || []) : null;
   const who = BK.hl ? (g?.sets.flatMap((s) => s.slots).find((x) => x && x.id === BK.hl)?.name || "Joueur suivi") : "Toi";
-  const strip = !projOn || !g || pool0 ? "" : steps ? bkjHTML(steps, { who, goAttr: "data-bkjgo" }) : '<div class="bkj"><div class="bkj-h">🔮 <b>Run prévue</b> : touche un joueur pour voir sa run prévue.</div></div>';
+  const pr = projOn && g && !pool0 ? bkjAll(g.sets, g.byes || []) : null;      // (v136 : tout le tableau prévu)
+  const strip = !projOn || !g || pool0 ? "" : steps?.length ? bkjHTML(steps, { who, goAttr: "data-bkjgo" }) : `<div class="bkj"><div class="bkj-h">🔮 <b>Run prévue</b> : tout le tableau est rempli (🔮), la meilleure seed gagnant chaque set à venir (↗ = vainqueur prévu). ${steps ? esc(who) + " n'est pas dans ce tableau." : "Touche un joueur pour voir sa run."}</div></div>`;
   const col = (lab, l) => `<div class="bk-col"><div class="bk-rd">${esc(lab)}</div><div class="bk-sets">${l.map(bkSet).join("")}</div></div>`;
   const cmp = (a, b) => a.ident.length - b.ident.length || a.ident.localeCompare(b.ident) || (a.order || 0) - (b.order || 0);
   const side = (pos) => { const m = new Map(); for (const s of (g?.sets || [])) if ((pos ? s.round > 0 : s.round < 0) && !isGF(s)) { if (!m.has(s.round)) m.set(s.round, []); m.get(s.round).push(s); }
@@ -551,12 +552,13 @@ function drawBracket() {
     return cols.join(""); };
   const bkSet = (s) => {
     const me = s.slots.some((x) => x && isMeBk(x, r)), on = BK.hl && s.slots.some((x) => x && x.id === BK.hl), inRun = !!steps && steps.some((t) => t.s.id === s.id);
-    const row = (x, i) => { const pj = !x && inRun && bkjFill(steps, s, i);
-      if (pj) return `<div class="bk-p pj ${isMeBk(pj, r) ? "me" : ""}" data-bkp="${esc(pj.id)}"><span class="bk-seed">${pj.seed ?? ""}</span><span class="bk-pjm">🔮</span><span class="bk-name">${esc(pj.name)}</span><b class="bk-sc"></b></div>`;
+    const pw = bkjWin(pr, s), filled = !!pr && [0, 1].some((i) => bkjSlot(pr, s, i));
+    const row = (x, i) => { const pj = !x && bkjSlot(pr, s, i);
+      if (pj) return `<div class="bk-p pj ${isMeBk(pj, r) ? "me" : ""}" data-bkp="${esc(pj.id)}"><span class="bk-seed">${pj.seed ?? ""}</span><span class="bk-pjm">🔮</span><span class="bk-name">${esc(pj.name)}</span><b class="bk-sc">${pw === pj.id ? "↗" : ""}</b></div>`;
       if (!x) return '<div class="bk-p empty"><span class="bk-seed"></span><span class="bk-name">—</span></div>';
-      const done = s.state === "done", win = done && s.winner === x.id, lose = done && s.winner && !win, sc = x.score == null ? (win ? "✓" : "") : x.score < 0 ? "DQ" : x.score;
-      return `<div class="bk-p ${win ? "win" : ""} ${lose ? "lose" : ""} ${isMeBk(x, r) ? "me" : ""}" data-bkp="${esc(x.id)}"><span class="bk-seed">${x.seed ?? ""}</span><span class="bk-name">${esc(x.name)}</span><span class="bk-ch">${(s.chars[x.id] || []).slice(0, 2).map((c) => ci(c, "xs")).join("")}</span><b class="bk-sc">${sc}</b></div>`; };
-    return `<div class="bk-set ${me ? "me" : ""} ${on ? "on" : ""} ${inRun && !on && !me ? "proj" : ""} ${s.state} ${BK.hl && !on && !inRun ? "dim" : ""} ${BK.fresh?.has(s.id) ? "fresh" : ""}" data-bks="${esc(s.id)}">${s.state === "live" ? '<span class="bk-dot">● en cours</span>' : ""}${row(s.slots[0], 0)}${row(s.slots[1], 1)}</div>`; };
+      const done = s.state === "done", win = done && s.winner === x.id, lose = done && s.winner && !win, sc = x.score == null ? (win ? "✓" : pw === x.id ? "↗" : "") : x.score < 0 ? "DQ" : x.score;
+      return `<div class="bk-p ${win ? "win" : ""} ${pw === x.id ? "pw" : ""} ${lose ? "lose" : ""} ${isMeBk(x, r) ? "me" : ""}" data-bkp="${esc(x.id)}"><span class="bk-seed">${x.seed ?? ""}</span><span class="bk-name">${esc(x.name)}</span><span class="bk-ch">${(s.chars[x.id] || []).slice(0, 2).map((c) => ci(c, "xs")).join("")}</span><b class="bk-sc">${sc}</b></div>`; };
+    return `<div class="bk-set ${me ? "me" : ""} ${on ? "on" : ""} ${inRun && !on && !me ? "run" : ""} ${filled ? "proj" : ""} ${s.state} ${BK.hl && !on && !inRun ? "dim" : ""} ${BK.fresh?.has(s.id) ? "fresh" : ""}" data-bks="${esc(s.id)}">${s.state === "live" ? '<span class="bk-dot">● en cours</span>' : ""}${row(s.slots[0], 0)}${row(s.slots[1], 1)}</div>`; };
   const pool = ph && g && bkpIsPool(ph), kind = pool ? bkpKind(ph) : "";
   const w = pool ? "" : side(true), l = pool ? "" : side(false), st = { done: "terminé", live: "en cours", next: "à venir" }[r.state];
   let pv = "";
