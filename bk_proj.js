@@ -73,6 +73,14 @@ function bkjHTML(steps, o) {
     ${row("w", "Winners")}${row("l", "Losers")}${row("gf", "Finale")}
     <div class="bkj-n">Sets joués : résultat réel · à venir : la meilleure seed gagne (🔮 = adversaire prévu).</div></div>`;
 }
+/* v136 : tout le bracket prévu. bkjAll : le rejeu d'un tableau (byes compris) ; bkjSlot : un slot vide rempli par le
+   rejeu (sinon null) ; bkjWin : l'id du vainqueur prévu d'un set pas encore joué (sinon "") */
+function bkjAll(sets, byes = []) { return bkjProject(sets.concat(byes)); }
+function bkjSlot(pr, s, i) { const p = pr && pr.get(String(s.id)); return !s.slots[i] && p && p.slots[i] ? p.slots[i] : null; }
+function bkjWin(pr, s) {
+  const p = pr && pr.get(String(s.id));
+  return p && s.state !== "done" && p.slots[0] && p.slots[1] && p.w ? p.w.id : "";
+}
 /* un slot vide d'un set de la run, rempli par le rejeu (sinon null) */
 function bkjFill(steps, s, i) {
   const t = steps.find((x) => x.s.id === s.id);
