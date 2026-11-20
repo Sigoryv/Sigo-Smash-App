@@ -57,7 +57,7 @@ function sheetWatch(tid, keep) {
     ${evs.length > 1 ? `<div class="seg">${evs.map((x, i) => `<button data-act="wt-ev" data-tid="${esc(tid)}" data-i="${i}" class="${i === evi ? "on" : ""}">${esc(x.name)}</button>`).join("")}</div>` : ""}
     ${e ? wtpEvent(t, e) : '<div class="card muted small">Ouvre ce tournoi une fois dans le Hub pour avoir sa fiche ici.</div>'}
     <div class="btns">${closeBtn()}</div>`, keep);
-  if (e && e.state === "live" && D.cfg.sgToken && !keep) wtpLive(t, e);
+  if (e && e.state === "live" && canLive(e) && !keep) wtpLive(t, e);
 }
 function wtpEvent(t, e) {
   const st = stats(allSets()), top = D.wtTop;
@@ -65,7 +65,7 @@ function wtpEvent(t, e) {
   return `<div class="card"><h3>⭐ Joueurs à suivre · ${esc(e.name)}</h3>
       ${fol.length ? fol.map((x) => wtpPlayer(t, e, x, st)).join("") : '<div class="muted small">Aucun de tes joueurs à suivre n\'est inscrit.</div>'}
       ${(e.absent || []).length ? `<div class="muted small">Pas inscrits : ${e.absent.map(esc).join(", ")}</div>` : ""}
-      ${e.state === "live" ? `<div class="muted small" style="margin-top:6px">${D.cfg.sgToken ? `<a href="#" data-act="wt-live" data-tid="${esc(t.id)}">⟳ relire les runs en direct</a>` : "Ajoute ton jeton start.gg (⚙) pour suivre les runs en direct ici."}</div>` : ""}
+      ${e.state === "live" ? `<div class="muted small" style="margin-top:6px">${canLive(e) ? `<a href="#" data-act="wt-live" data-tid="${esc(t.id)}">⟳ relire les runs en direct</a>` : String(e.eid).startsWith("shobu:") ? "Ajoute ta clé Shobu (⚙) pour suivre les runs en direct ici." : "Ajoute ton jeton start.gg (⚙) pour suivre les runs en direct ici."}</div>` : ""}
       <button class="btn" data-act="bracket" data-eid="${esc(e.eid)}" data-title="${esc(t.name + " · " + e.name)}" style="width:100%;margin-top:8px">🏆 Voir le bracket</button></div>
     ${(e.standings || []).length ? `<div class="card"><h3>🏅 Classement</h3>${e.standings.map((s) => `<div class="row"><b style="min-width:34px">${ordinal(s.place)}</b>${av(s.pid, s.name, "sm")}<div class="grow">${esc(s.name)}</div><span class="muted small">${s.seed ? "seed " + s.seed : ""}</span></div>`).join("")}</div>` : ""}
     ${(e.upsets || []).length ? `<div class="card"><h3>💥 Upsets</h3>${e.upsets.map((u) => `<div class="small wtp-up"><span class="chip ok">+${u.uf}</span> <b>${esc(u.w.name)}</b> <span class="muted">(${u.w.seed})</span> bat <b>${esc(u.l.name)}</b> <span class="muted">(${u.l.seed})</span> · ${u.w.score ?? "?"}-${u.l.score ?? "?"}</div>`).join("")}</div>` : ""}
@@ -84,8 +84,10 @@ function wtpPlayer(t, e, x, st) {
     ${live ? `<div class="muted small">en direct · lu ${ago(new Date(live.at * 1000).toISOString())}</div>` : ""}</div>`;
 }
 /* ⟳ la run des joueurs suivis, relue directement sur start.gg (même requête que « ma run en direct ») */
+const canLive = (e) => String(e?.eid || "").startsWith("shobu:") ? !!D.cfg.shobuKey : !!D.cfg.sgToken;     // (🥋 v131 : Shobu avec sa clé)
 async function wtpLive(t, e) {
   D.wlive = D.wlive || {};
+  if (String(e.eid).startsWith("shobu:")) return wtpLiveShobu(t, e);
   let n = 0, err = "";
   for (const x of e.followed || []) {
     if (!x.id) continue;
@@ -104,6 +106,31 @@ async function wtpLive(t, e) {
     } catch (er) { err = er.message; }                 // (un joueur illisible n'arrête pas les autres)
   }
   if (!n && err) toast(err, true);
+  save();
+  if (n && CUR && !$("#sheet-back").hidden) sheetWatch(t.id, true);
+}
+/* 🥋 (v131) un tournoi Shobu suivi : un seul bracket relu (clé Shobu du téléphone), la run de chaque joueur suivi */
+async function wtpLiveShobu(t, e) {
+  if (!D.cfg.shobuKey) { toast("Ajoute ta clé Shobu (⚙) pour suivre les runs en direct ici.", true); return; }
+  let d;
+  try { d = await sbGet(`/events/${encodeURIComponent(String(e.eid).slice(6))}/bracket`); } catch (er) { toast(er.message, true); return; }
+  if (!d) { toast("Bracket Shobu illisible pour l'instant.", true); return; }
+  let n = 0;
+  for (const x of e.followed || []) {
+    if (!x.id) continue;
+    const rows = [];
+    for (const s of d.sets || []) {
+      const sl = (s.slots || []).filter(Boolean), mine = sl.find((y) => String(y.entrant?.id) === String(x.id)); if (!mine) continue;
+      const opp = sl.find((y) => y !== mine) || {}; if (opp.isBye) continue;
+      const oe = opp.entrant, p = oe?.player || {}, st = String(s.status || "").toUpperCase(), done = st === "COMPLETED";
+      const spid = oe ? "shobu:" + norm(p.username || oe.name) : "";
+      rows.push({ order: (done ? 0 : 1e6) + (s.number || 0), name: oe ? (oe.name || p.username) : "À déterminer", pid: spid ? (sgIdForTag(spid, oe.name) || spid) : "", seed: oe?.seed ?? null,
+        label: s.roundName || "", res: done ? (mine.isWinner ? "w" : "l") : !oe ? "wait" : ["IN_PROGRESS", "ONGOING", "STARTED", "ACTIVE"].includes(st) ? "live" : "next",
+        score: done ? `${mine.score ?? "?"}-${opp.score ?? "?"}` : "" });
+    }
+    rows.sort((a, b) => a.order - b.order);
+    D.wlive[`${e.eid}:${x.id}`] = { at: Date.now() / 1000, sets: rows, out: rows.filter((r) => r.res === "l").length >= 2 }; n++;
+  }
   save();
   if (n && CUR && !$("#sheet-back").hidden) sheetWatch(t.id, true);
 }
