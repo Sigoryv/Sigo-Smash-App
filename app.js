@@ -307,6 +307,49 @@ const Q_BR = `query Br($id: ID!, $page: Int!, $per: Int!) { event(id: $id) { id 
     slots { prereqId prereqType entrant { id name initialSeedNum participants { player { id } } } standing { stats { score { value } } } }
     games { selections { entrant { id } selectionValue } } } } } }`;
 let BK = null;
+/* un set start.gg → le format du bracket */
+function sgNode(n) {
+  const chars = {};
+  for (const g of n.games || []) for (const x of g.selections || []) { const k = String(x.entrant?.id || ""); if (k && x.selectionValue != null) (chars[k] = chars[k] || []).includes(x.selectionValue) || chars[k].push(x.selectionValue); }
+  return { id: String(n.id), round: n.round || 0, label: n.fullRoundText || "", ident: n.identifier || "", state: { 1: "next", 2: "live", 3: "done" }[n.state] || "next",
+    winner: String(n.winnerId || ""), chars, phase: String(n.phaseGroup?.phase?.id || ""), group: String(n.phaseGroup?.id || ""), gname: n.phaseGroup?.displayIdentifier || "",
+    slots: [0, 1].map((i) => { const x = (n.slots || [])[i], e = x?.entrant; return e ? { id: String(e.id), name: e.name || "?", seed: e.initialSeedNum, pid: String(e.participants?.[0]?.player?.id || ""), score: x.standing?.stats?.score?.value } : null; }),
+    pre: [0, 1].map((i) => { const x = (n.slots || [])[i]; return x?.prereqType === "set" && x.prereqId != null ? String(x.prereqId) : null; }) };
+}
+/* 🧩 v144 : un gros tournoi (trop de sets pour tout lire) : la liste de ses poules, puis la poule ouverte lue en entier */
+const Q_PGROUPS = `query PG($id: ID!) { event(id: $id) { phases { id phaseGroups(query: {page: 1, perPage: 256}) { nodes { id displayIdentifier } } } } }`;
+const Q_GROUP = `query G($id: ID!, $page: Int!, $per: Int!) { phaseGroup(id: $id) { id sets(page: $page, perPage: $per, sortType: ROUND) { pageInfo { totalPages } nodes { id round fullRoundText identifier state winnerId displayScore
+    phaseGroup { id displayIdentifier phase { id } }
+    slots { prereqId prereqType entrant { id name initialSeedNum participants { player { id } } } standing { stats { score { value } } } }
+    games { selections { entrant { id } selectionValue } } } } } }`;
+async function loadGroup(gid) {
+  for (const per of [16, 8, 4]) {
+    try {
+      const sets = []; let page = 1, total = 1;
+      while (page <= Math.min(total, Math.ceil(600 / per))) {
+        const d = (await gql(Q_GROUP, { id: gid, page, per })).phaseGroup || {};
+        total = d.sets?.pageInfo?.totalPages || 1;
+        for (const n of d.sets?.nodes || []) sets.push(sgNode(n));
+        page++;
+      }
+      const u = new Map(); for (const x of sets) u.set(x.id, x);
+      return [...u.values()];
+    } catch (e) { if (!/complexity/i.test(e.message) || per === 4) throw e; }
+  }
+}
+function bkGroupFill(r, g) {                   // (true tant que la poule n'est pas là)
+  const k = `${r.eid}|${g.id}`; BK.gsets ||= {}; BK.gload ||= {};
+  const have = BK.gsets[k];
+  if (have && !g.full) { g.sets = have.sets; g.full = true; BK.projOf = null; }
+  if (BK.gload[k] || (have && (have.done || Date.now() - have.t < 120e3))) return !have;
+  BK.gload[k] = true;
+  loadGroup(g.id).then((sets) => {
+    BK.gsets[k] = { sets, done: sets.length > 0 && sets.every((x) => x.state === "done"), t: Date.now() };
+    g.sets = sets; g.full = true; BK.projOf = null;
+  }).catch((e) => { if (!have) toast("Poule : " + e.message, true); })
+    .finally(() => { BK.gload[k] = false; if (BK && !$("#sheet-back").hidden && $("#sheet .bk-direct, #sheet .bk-wrap")) drawBracket(); });
+  return !have;
+}
 async function loadBracket(eid) {
   if (String(eid).startsWith("shobu:")) return shobuBracket(eid);
   let q = Q_BR;
@@ -316,22 +359,19 @@ async function loadBracket(eid) {
       while (page <= Math.min(total, Math.ceil(1800 / per))) {
         const d = (await gql(q, { id: eid, page, per })).event; if (!d) throw new Error("Épreuve introuvable sur start.gg.");
         ev = ev || d; total = d.sets?.pageInfo?.totalPages || 1;
-        for (const n of d.sets?.nodes || []) {
-          const chars = {};
-          for (const g of n.games || []) for (const x of g.selections || []) { const k = String(x.entrant?.id || ""); if (k && x.selectionValue != null) (chars[k] = chars[k] || []).includes(x.selectionValue) || chars[k].push(x.selectionValue); }
-          sets.push({ id: String(n.id), round: n.round || 0, label: n.fullRoundText || "", ident: n.identifier || "", state: { 1: "next", 2: "live", 3: "done" }[n.state] || "next",
-            winner: String(n.winnerId || ""), chars, phase: String(n.phaseGroup?.phase?.id || ""), group: String(n.phaseGroup?.id || ""), gname: n.phaseGroup?.displayIdentifier || "",
-            slots: [0, 1].map((i) => { const x = (n.slots || [])[i], e = x?.entrant; return e ? { id: String(e.id), name: e.name || "?", seed: e.initialSeedNum, pid: String(e.participants?.[0]?.player?.id || ""), score: x.standing?.stats?.score?.value } : null; }),
-            pre: [0, 1].map((i) => { const x = (n.slots || [])[i]; return x?.prereqType === "set" && x.prereqId != null ? String(x.prereqId) : null; }) });
-        }
+        for (const n of d.sets?.nodes || []) sets.push(sgNode(n));
         page++;
       }
       { const u = new Map(); for (const x of sets) u.set(x.id, x); sets.length = 0; sets.push(...u.values()); }   // (v90 : un set lu deux fois pendant une mise à jour : sa dernière version)
+      const partial = total * per > 1800, extra = {};                                      // (🧩 v144 : toutes les poules d'un gros tournoi)
+      if (partial) try { for (const p of (await gql(Q_PGROUPS, { id: eid })).event?.phases || []) extra[String(p.id)] = p.phaseGroups?.nodes || []; } catch (_) {}
       const phases = (ev.phases || []).slice().sort((a, b) => (a.phaseOrder || 0) - (b.phaseOrder || 0)).map((p) => {
         const gs = new Map(); for (const st of sets.filter((x) => x.phase === String(p.id))) { if (!gs.has(st.group)) gs.set(st.group, { id: st.group, name: st.gname, sets: [] }); gs.get(st.group).sets.push(st); }
+        for (const n of extra[String(p.id)] || []) if (!gs.has(String(n.id))) gs.set(String(n.id), { id: String(n.id), name: n.displayIdentifier || "", sets: [] });
+        if (partial) for (const x of gs.values()) x.lazy = true;
         return { id: String(p.id), name: p.name, type: p.bracketType || "", seeds: p.numSeeds || 0, ngroups: p.groupCount || 0, groups: [...gs.values()].sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name)) };
       }).filter((p) => p.groups.length);
-      return { eid, name: ev.name, tournament: ev.tournament?.name || "", events: (ev.tournament?.events || []).map((x) => ({ id: String(x.id), name: x.name || "", n: x.numEntrants || 0 })), state: ev.state === "COMPLETED" ? "done" : ev.state === "ACTIVE" ? "live" : "next", me: String(D.player?.id || ""), phases, at: now() };
+      return { eid, partial, name: ev.name, tournament: ev.tournament?.name || "", events: (ev.tournament?.events || []).map((x) => ({ id: String(x.id), name: x.name || "", n: x.numEntrants || 0 })), state: ev.state === "COMPLETED" ? "done" : ev.state === "ACTIVE" ? "live" : "next", me: String(D.player?.id || ""), phases, at: now() };
     } catch (e) {
       if (/numSeeds|groupCount/i.test(e.message) && q === Q_BR) { q = Q_BR.replace(" numSeeds groupCount", ""); continue; }   // (🔁 v84 : si start.gg refuse ces champs, sans eux)
       if (!/complexity/i.test(e.message) || per === 4) throw e; }
@@ -344,11 +384,11 @@ async function shobuBracket(eid) {
   const sets = (d.sets || []).map((x) => {
     const slots = [0, 1].map((i) => { const y = (x.slots || [])[i], e = y?.entrant; return e ? { id: "shobu:" + norm(e.player?.username || e.name), name: e.name || e.player?.username || "?", seed: e.seed, pid: "", score: y.score } : null; });
     const w = (x.slots || []).findIndex((y) => y?.isWinner), st = String(x.status || "").toUpperCase();
-    return { id: String(x.id), round: rd(x.roundName), label: x.roundName || "", ident: "", order: x.number || 0, state: st === "COMPLETED" ? "done" : st.startsWith("IN") || st === "ONGOING" || st === "STARTED" ? "live" : "next", winner: w >= 0 && slots[w] ? slots[w].id : "", chars: {}, slots,
+    return { id: String(x.id), round: rd(x.roundName), label: x.roundName || "", ident: "", order: x.number || 0, state: st === "COMPLETED" ? "done" : st.startsWith("IN") || st === "ONGOING" || st === "STARTED" ? "live" : "next", winner: w >= 0 && slots[w] ? slots[w].id : "", chars: x.chars || {}, slots,
              bye: (x.slots || []).some((y) => y?.isBye), bslot: [0, 1].map((i) => !!(x.slots || [])[i]?.isBye), g: sbGroupKey(x) };
   });
   const phases = sbLayout(sets), all = phases.flatMap((p) => p.groups.flatMap((g) => g.sets));
-  return { eid, name: d.event?.name || "Bracket", tournament: "", state: all.length && all.every((x) => x.state === "done") ? "done" : "live", me: me ? "shobu:" + me : "", phases, at: d.hubAt || now() };
+  return { eid, name: d.event?.name || "Bracket", tournament: "", state: all.length && all.every((x) => x.state === "done") ? "done" : "live", me: me ? "shobu:" + me : "", phases, mains: d.mains || {}, at: d.hubAt || now() };
 }
 /* 🧩 v132 : un bracket Shobu en plusieurs tableaux (poules, puis phase finale…) : chaque tableau recommence à
    « Winners Round 1 ». On les sépare (champ de poule s'il existe, sinon dès qu'un tableau repart au 1er tour), on
@@ -496,6 +536,13 @@ function bkBanner(r) {
     : st.kind === "out" ? `<b>${BK.hl ? "Éliminé·e" : "Run terminée"}</b> · ${st.w}–${st.l} en sets` : st.kind === "wait" ? `<b>⏳ En attente</b> · ${st.w}–${st.l} en sets pour l'instant` : `<b>${nm}</b> : pas encore de set`;
   return `<div class="card bk-live ${st.kind}">${BK.hl ? `<div class="muted small">⭐ Suivi : ${esc(st.who.name)} · <a href="#" data-act="bk-me">revenir à moi</a></div>` : ""}${body}${go || scoutB ? `<div class="btns" style="margin-top:6px">${go}${scoutB}</div>` : ""}</div>`;
 }
+/* 🎭 v141 : les persos d'un joueur dans un set : ceux joués s'ils sont notés, sinon ses mains (estompés) envoyés par le Hub */
+function bkChars(s, x, r) {
+  const real = (s.chars || {})[x.id] || [];
+  if (real.length) return `<span class="bk-ch">${real.slice(0, 2).map((c) => ci(c, "xs")).join("")}</span>`;
+  const m = (r.mains || {})[x.id] || (r.mains || {})[x.pid] || (D.mains || {})[x.pid] || [];
+  return m.length ? `<span class="bk-ch bk-mn">${m.slice(0, 2).map((c) => ci(c, "xs")).join("")}</span>` : "";
+}
 const isMeBk = (x, r) => !!r.me && (x.pid === r.me || x.id === r.me);
 /* 🌳 v46 : chaque set à sa vraie place dans l'arbre. Avec 25 joueurs (pas une puissance de 2), le 1er tour a des trous :
    on suit les liens « ce slot vient de tel set » (start.gg : prereqId ; sinon on les déduit des vainqueurs) et chaque set
@@ -536,6 +583,7 @@ function drawBracket() {
   const meIn = (g) => g.sets.some((s) => s.slots.some((x) => x && isMeBk(x, r)));
   if (!r.phases.some((p) => p.id === BK.phase)) { const ph = r.phases.slice().reverse().find((p) => p.groups.some(meIn)) || r.phases[r.phases.length - 1]; BK.phase = ph?.id; BK.group = (ph?.groups.find(meIn) || ph?.groups[0])?.id; }
   const ph = r.phases.find((p) => p.id === BK.phase), g = ph?.groups.find((x) => x.id === BK.group) || ph?.groups[0];
+  const gWait = g && g.lazy && bkGroupFill(r, g);             // (🧩 v144 : la poule lue en entier)
   const isGF = (s) => s.round > 0 && /grand/i.test(s.label);
   /* 🔮 v133 : la run prévue (bk_proj.js) de toi ou du joueur suivi, dans ce tableau : winners, puis losers */
   const projOn = D.cfg.bkProj !== false, pool0 = ph && g && bkpIsPool(ph);
@@ -562,10 +610,10 @@ function drawBracket() {
     const me = s.slots.some((x) => x && isMeBk(x, r)), on = BK.hl && s.slots.some((x) => x && x.id === BK.hl), inRun = !!steps && steps.some((t) => t.s.id === s.id);
     const pw = bkjWin(pr, s), filled = !!pr && [0, 1].some((i) => bkjSlot(pr, s, i));
     const row = (x, i) => { const pj = !x && bkjSlot(pr, s, i);
-      if (pj) return `<div class="bk-p pj ${isMeBk(pj, r) ? "me" : ""}" data-bkp="${esc(pj.id)}"><span class="bk-seed">${pj.seed ?? ""}</span><span class="bk-pjm">🔮</span><span class="bk-name">${esc(pj.name)}</span><b class="bk-sc">${pw === pj.id ? "↗" : ""}</b></div>`;
+      if (pj) return `<div class="bk-p pj ${isMeBk(pj, r) ? "me" : ""}" data-bkp="${esc(pj.id)}"><span class="bk-seed">${pj.seed ?? ""}</span><span class="bk-pjm">🔮</span><span class="bk-name">${esc(pj.name)}</span>${bkChars(s, pj, r)}<b class="bk-sc">${pw === pj.id ? "↗" : ""}</b></div>`;
       if (!x) return '<div class="bk-p empty"><span class="bk-seed"></span><span class="bk-name">—</span></div>';
       const done = s.state === "done", win = done && s.winner === x.id, lose = done && s.winner && !win, sc = x.score == null ? (win ? "✓" : pw === x.id ? "↗" : "") : x.score < 0 ? "DQ" : x.score;
-      return `<div class="bk-p ${win ? "win" : ""} ${pw === x.id ? "pw" : ""} ${lose ? "lose" : ""} ${isMeBk(x, r) ? "me" : ""}" data-bkp="${esc(x.id)}"><span class="bk-seed">${x.seed ?? ""}</span><span class="bk-name">${esc(x.name)}</span><span class="bk-ch">${(s.chars[x.id] || []).slice(0, 2).map((c) => ci(c, "xs")).join("")}</span><b class="bk-sc">${sc}</b></div>`; };
+      return `<div class="bk-p ${win ? "win" : ""} ${pw === x.id ? "pw" : ""} ${lose ? "lose" : ""} ${isMeBk(x, r) ? "me" : ""}" data-bkp="${esc(x.id)}"><span class="bk-seed">${x.seed ?? ""}</span><span class="bk-name">${esc(x.name)}</span>${bkChars(s, x, r)}<b class="bk-sc">${sc}</b></div>`; };
     return `<div class="bk-set ${me ? "me" : ""} ${on ? "on" : ""} ${inRun && !on && !me ? "run" : ""} ${filled ? "proj" : ""} ${s.state} ${BK.hl && !on && !inRun ? "dim" : ""} ${BK.fresh?.has(s.id) ? "fresh" : ""}" data-bks="${esc(s.id)}">${s.state === "live" ? '<span class="bk-dot">● en cours</span>' : ""}${row(s.slots[0], 0)}${row(s.slots[1], 1)}</div>`; };
   const pool = ph && g && bkpIsPool(ph), kind = pool ? bkpKind(ph) : "";
   const w = pool ? "" : side(true), l = pool ? "" : side(false), st = { done: "terminé", live: "en cours", next: "à venir" }[r.state];
@@ -585,7 +633,7 @@ function drawBracket() {
     ${ph && ph.groups.length > 1 ? `<div class="chips">${ph.groups.map((x) => `<button class="stage ${x.id === g.id ? "on" : ""}" data-act="bk-g" data-id="${esc(x.id)}">${esc(x.name || "Poule")}${meIn(x) ? " ★" : ""}</button>`).join("")}</div>` : ""}
     ${w || l ? `<div class="bk-tools"><button class="btn small" data-act="bk-mine" ${bkTarget(r) ? "" : "disabled"}>🎯 ${BK.hl ? "Suivi" : "Moi"}</button><button class="btn small bk-pj ${projOn ? "on" : ""}" data-act="bk-proj">🔮 Run prévue</button><span class="grow"></span>
       <button class="btn small" data-act="bk-z" data-z="-1" aria-label="Dézoomer">－</button><span class="bk-zv muted small" id="bk-zv">${Math.round((BK.z || 1) * 100)} %</span><button class="btn small" data-act="bk-z" data-z="1" aria-label="Zoomer">＋</button><button class="btn small" data-act="bk-fit">⤢ Tout voir</button></div>` : ""}
-    ${strip}${pv}${pool ? "" : `<div class="bk-wrap"><div class="bk-zoom" style="zoom:${BK.z || 1}">${w ? `<div class="bk-sname">Winners</div><div class="bk-cols">${w}</div>` : ""}${l ? `<div class="bk-sname">Losers</div><div class="bk-cols">${l}</div>` : ""}</div>${!w && !l ? '<div class="muted small">Pas encore de sets.</div>' : ""}</div>`}
+    ${strip}${pv}${pool ? "" : `<div class="bk-wrap"><div class="bk-zoom" style="zoom:${BK.z || 1}">${w ? `<div class="bk-sname">Winners</div><div class="bk-cols">${w}</div>` : ""}${l ? `<div class="bk-sname">Losers</div><div class="bk-cols">${l}</div>` : ""}</div>${!w && !l ? `<div class="muted small">${gWait ? "⏳ Lecture de cette poule en entier sur start.gg (gros tournoi)…" : "Pas encore de sets."}</div>` : ""}</div>`}
     <div class="muted small">Touche un joueur pour suivre son parcours. Glisse pour te déplacer, pince pour zoomer.</div><div class="btns">${closeBtn()}</div>`);
   bkPinch();
 }
@@ -857,7 +905,7 @@ async function syncCloud() {
     if (s.watch && (s.watch.at || 0) >= (D.watch?.at || 0)) D.watch = s.watch;          // (📺 v116 : les tournois à suivre du Hub)
     if (typeof luSyncFrames === "function") await luSyncFrames(s).catch((e) => localStorage.setItem("sigo.frames.err", "Frame data : " + e.message));   // (v65 : la frame data gardée par le Hub)
     if (s.last_sync && (!D.lastSg || new Date(s.last_sync) > new Date(D.lastSg))) {
-      D.sets = s.sets || D.sets; D.chars = Object.keys(s.chars || {}).length ? s.chars : D.chars; D.player = s.player || D.player;
+      D.sets = s.sets || D.sets; D.chars = Object.keys(s.chars || {}).length ? s.chars : D.chars; D.player = s.player || D.player; D.mains = s.mains || D.mains || {};
       if (s.charimg || s.avatars) D.media = { charimg: s.charimg || {}, avatars: s.avatars || {} };
       if (s.upcoming && s.upcoming.tournaments && (!D.upcoming || (s.upcoming.at || 0) > (D.upcoming.at || 0))) D.upcoming = s.upcoming;
       if (!c.profile && s.profile) c.profile = "https://www.start.gg/" + s.profile;
@@ -1240,10 +1288,13 @@ function upRunHTML(ev, st) {
   return opps.map((t) => runRow({ label: t.s.label || (t.side === "l" ? "Losers " : "") + "Tour " + Math.abs(t.s.round), name: t.opp.name, pid: t.opp.pid, seed: t.opp.seed, res: t.done ? t.res : "next" }, st)).join("")
     + blocks.map((b) => `${r.phases.length > 1 ? `<div class="muted small" style="margin-top:6px"><b>${esc(b.ph.name)}${b.ph.groups.length > 1 && b.g.name ? " · " + esc(b.g.name) : ""}</b></div>` : ""}${bkjHTML(b.steps, { who: "Toi", goAttr: `data-eid="${esc(ev.eid)}" data-act="bracket" data-title="${esc(r.name || "Bracket")}" data-set` })}`).join("");
 }
+const UPB = {};                                  // (la dernière tentative de lecture, par épreuve : une seule à la fois, au plus toutes les 10 min)
 async function upBrackets(u, tid) {
   for (const ev of u.events || []) {
     const r = (D.brackets || {})[ev.eid];
-    if (r && now() - (r.got || r.at || 0) < 600) continue;          // (relu au plus toutes les 10 min)
+    if (r && now() - (r.got || r.at || 0) < 600) continue;
+    if (now() - (UPB[ev.eid] || 0) < 600) continue;
+    UPB[ev.eid] = now();          // (relu au plus toutes les 10 min)
     if (String(ev.eid).startsWith("shobu:") ? !hubOk() : !D.cfg.sgToken) continue;
     try { const b = await loadBracket(ev.eid); b.got = now(); D.brackets = Object.fromEntries(Object.entries({ ...(D.brackets || {}), [ev.eid]: b }).slice(-5)); save(); }
     catch (_) { continue; }
