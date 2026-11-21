@@ -470,3 +470,5 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 .bkj-n { font-size: 11px; opacity: .6; }
 .bkj-c { padding: 5px 9px; }
 .bk-set.proj .bk-p.pj { font-style: italic; }
+
+.bk-ch.bk-mn { opacity: .55; }
