@@ -169,7 +169,7 @@ function bkjRng(seed) { let t = seed >>> 0; return () => { t += 0x6D2B79F5; let 
 function bkjSim(r, isPool, isMe, o = {}) {
   const n = o.n || 400, rnd = bkjRng(o.seed || 7), meOpt = { isMe: o.youMe || isMe, h2h: o.h2h };
   const pick = (a, b) => (rnd() < bkjP(a, b, meOpt) ? a : b);
-  const reach = new Map(), win = new Map(), opps = new Map(), tab = new Map();
+  const reach = new Map(), win = new Map(), opps = new Map(), tab = new Map(), meet = new Map();   // (🎯 v157 meet : qui tu croises, sur tout le tournoi)
   let top8 = 0, champ = 0, deep = 0;
   const phases = (r.phases || []).filter((p) => !(isPool && isPool(p)));
   const size = (p) => p.groups.reduce((a, g) => a + g.sets.length + (g.byes || []).length, 0);
@@ -177,6 +177,7 @@ function bkjSim(r, isPool, isMe, o = {}) {
   for (let k = 0; k < n; k++) {
     const M = bkjMulti(r.phases, isPool, pick);
     let inLast = false;
+    const met = new Map();
     for (const ph of phases) for (const g of ph.groups) {
       const pr = M.get(`${ph.id}|${g.id}`); if (!pr) continue;
       const all = g.sets.concat(g.byes || []);
@@ -192,6 +193,7 @@ function bkjSim(r, isPool, isMe, o = {}) {
         else if (q.w && s.round < 0) alive = false;
         else if (q.w && s.round >= 99 && !/reset/i.test(s.label || "")) alive = false;
         if (opp) { const m = opps.get(id) || new Map(); m.set(opp.name, (m.get(opp.name) || 0) + 1); opps.set(id, m); }
+        if (opp) met.set(String(opp.pid || opp.id), opp);
       }
       if (!here) continue;
       const key = `${ph.id}|${g.id}`, t = tab.get(key) || { here: 0, out: 0 };
@@ -212,12 +214,14 @@ function bkjSim(r, isPool, isMe, o = {}) {
       }
     }
     if (inLast) deep++;
+    for (const [k, x] of met) { const m = meet.get(k) || { pid: x.pid || "", id: x.id, name: x.name, seed: x.seed, n: 0 }; m.n++; meet.set(k, m); }
   }
   const pct = (x) => Math.round((100 * x) / n);
   const outO = new Map([...opps].map(([id, m]) => [id, [...m].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([nm, c]) => [nm, Math.round((100 * c) / (reach.get(id) || 1))])]));
   return { n, reach: new Map([...reach].map(([k, v]) => [k, pct(v)])), win: new Map([...win].map(([k, v]) => [k, Math.round((100 * v) / (reach.get(k) || 1))])),
            opps: outO, tables: new Map([...tab].map(([k, t]) => [k, { here: pct(t.here), out: pct(t.out) }])), lastKey: last ? last.id : "",
-           multi: phases.length > 1, deep: pct(deep), top8: pct(top8), champ: pct(champ) };
+           multi: phases.length > 1, deep: pct(deep), top8: pct(top8), champ: pct(champ),
+           meet: [...meet.values()].map((m) => ({ ...m, pct: pct(m.n) })).sort((a, b) => b.n - a.n) };
 }
 /* le résumé en une ligne (pour le bandeau), et le pourcentage d'une étape */
 function bkjSimLine(sim, tableKey, isFinal) {
