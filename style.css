@@ -506,4 +506,4 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 .recap .rc-f.warn { border-left: 3px solid var(--accent2); }
 .recap textarea { width: 100%; min-height: 110px; }
 /* 🎯 v150 : gros brackets : seuls les sets proches de l'écran sont dessinés */
-.bk-slot { content-visibility: auto; }
+.bk-big .bk-slot { content-visibility: auto; }   /* (seulement les gros brackets : plus de 120 sets) */
