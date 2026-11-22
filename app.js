@@ -747,8 +747,9 @@ async function prefetchScouts() {
     if ((u.start || 0) * 1000 > Date.now()) (bracketPath(ev) || []).forEach((r) => /^\d+$/.test(r.e?.pid || "") && want.set(r.e.pid, r.e.tag || r.e.name));
     const r = (D.live || {})[ev.eid]; (r?.sets || []).filter((x) => (x.res === "next" || x.res === "live") && x.pid).forEach((x) => want.set(x.pid, x.name));
   }
+  for (const p of Object.values(D.prep || {})) for (const o of p.opps || []) if (/^\d+$/.test(o.pid || "")) want.set(o.pid, o.name);     // (🎯 v157 : la prépa du Hub)
   let n = 0;
-  for (const [pid] of [...want].slice(0, 10)) {
+  for (const [pid] of [...want].slice(0, 14)) {
     if (D.scout[pid] && now() - D.scout[pid].at < 24 * 3600) continue;
     try { await scout(pid, true); n++; } catch (_) { break; }
     await new Promise((r) => setTimeout(r, 700));
@@ -915,7 +916,9 @@ async function syncCloud() {
   if (snap.obj) {
     const s = await decrypt(snap.obj); snapShobu = s;
     if (s.watch && (s.watch.at || 0) >= (D.watch?.at || 0)) D.watch = s.watch;          // (📺 v116 : les tournois à suivre du Hub)
+    if (s.prep) D.prep = s.prep;                                                          // (🎯 v157 : tes adversaires probables, préparés par le Hub)
     if (typeof luSyncFrames === "function") await luSyncFrames(s).catch((e) => localStorage.setItem("sigo.frames.err", "Frame data : " + e.message));   // (v65 : la frame data gardée par le Hub)
+    if (typeof sceneSync === "function") await sceneSync(s).catch(() => {});        // (🏅🎬 v156 : le classement local et les VODs du Hub)
     if (s.last_sync && (!D.lastSg || new Date(s.last_sync) > new Date(D.lastSg))) {
       D.sets = s.sets || D.sets; D.chars = Object.keys(s.chars || {}).length ? s.chars : D.chars; D.player = s.player || D.player; D.mains = s.mains || D.mains || {};
       if (s.charimg || s.avatars) D.media = { charimg: s.charimg || {}, avatars: s.avatars || {} };
@@ -983,6 +986,18 @@ function viewWelcome() {
     <ol><li>Dans le Hub : 🎮 Smash → 📱 Téléphone, pour créer ton dépôt privé et tes jetons.</li><li>Ici : ⚙ Réglages, colle les mêmes informations.</li><li>⟳ pour tout récupérer.</li></ol>
     <button class="btn accent" data-act="settings" style="width:100%">⚙ Réglages</button></div>`;
 }
+/* 🎯 v157 : la prépa de tes adversaires (poule : sûrs ; ensuite : probables), faite par le Hub, lisible sans réseau */
+function prepHome() {
+  const now = Date.now() / 1000, st = stats(allSets());
+  return Object.values(D.prep || {}).filter((p) => (p.start || 0) > now - 2 * 86400 && (p.opps || []).length).sort((a, b) => a.start - b.start).slice(0, 2).map((p) => {
+    const row = (o) => { const m = st.opps.find((x) => x.id === o.pid || key(x.name) === key(o.name));
+      return `<div class="row" data-plan-home="${esc(o.pid || o.name)}" data-name="${esc(o.name)}"><span class="prep-pct">${o.pool ? "poule" : o.pct + " %"}</span><div class="grow"><b>${esc(o.name)}</b>${o.seed ? ` <span class="muted small">seed ${o.seed}</span>` : ""}
+        <div class="small">${(o.chars || []).map((c) => ci(c, "xs")).join("")} ${m ? wl(m.w, m.l) : '<span class="muted">jamais joué</span>'}</div></div>›</div>`; };
+    const pool = p.opps.filter((o) => o.pool), pr = p.opps.filter((o) => !o.pool);
+    return `<div class="card prep"><h3>🎯 Ta prépa · ${esc(p.name)}</h3><div class="muted small">${esc(p.event || "")} · ${fmtDate(new Date(p.start * 1000).toISOString())} · touche un joueur : son plan de match et ses VODs</div>
+      ${pool.length ? `<div class="muted small prep-h">Ta poule</div>${pool.map(row).join("")}` : ""}${pr.length ? `<div class="muted small prep-h">Tes adversaires probables ${pool.length ? "ensuite" : ""}</div>${pr.map(row).join("")}` : ""}</div>`;
+  }).join("");
+}
 function viewHome() {
   const sets = allSets(), st = stats(sets), t = st.tours[0];
   const up = ups().filter((x) => (x.start || 0) * 1000 > Date.now() - 864e5).slice(0, 3);
@@ -994,6 +1009,7 @@ function viewHome() {
         <div class="small">${r ? (r.out ? "Éliminé · " : "") + (nx ? (nx.res === "live" ? `● En cours contre <b>${esc(nx.name)}</b>` : `Prochain : <b>${esc(nx.name)}</b> · ${esc(nx.label)}`) : r.out ? "" : "En attente du prochain set") : "Lecture de ta run…"}</div></div>`; }).join("")}
     ${ups().filter((u) => dayOf(u) && (u.start || 0) * 1000 > Date.now() && u.events.some((ev) => ev.me)).map((u) => `<div class="card tmode" data-act="day" data-tid="${esc(u.tid)}"><div class="small tmode-h">🔥 JOUR J · ${esc(countdown(u.start))}</div><b>${esc(u.name)}</b>
       <div class="small">Ton 1er set, tes adversaires probables et leur scouting : touche pour ouvrir.</div></div>`).join("")}
+    ${prepHome()}
     ${ask ? '<button class="btn" data-act="notif" style="width:100%;margin-bottom:10px">🔔 Activer les alertes (prochain adversaire, set lancé)</button>' : ""}
     ${typeof wtpHome === "function" ? wtpHome() : ""}
     ${(() => { const n = fillTodo(sets, games).length; return n ? `<button class="card fill-nudge" data-act="fill" style="width:100%;text-align:left">🎭 <b>${n} set${n > 1 ? "s" : ""} sans persos</b> <span class="muted small">· touche pour les compléter (2 appuis par set) : tes stats par perso et par matchup en tiennent compte</span></button>` : ""; })()}
@@ -1061,7 +1077,8 @@ async function findGo() {
 let pq = "";
 function viewPlayers() {
   const st = stats(allSets()), list = st.opps.filter((o) => !pq || key(o.name).includes(key(pq)));
-  return `<input type="search" id="pq" placeholder="Chercher un joueur…" value="${esc(pq)}" style="margin-bottom:10px">
+  return `<div class="sc-links"><button class="btn" data-act="sc-rank">🏅 Classement local</button><button class="btn" data-act="sc-vods">🎬 VODs</button></div>
+    <input type="search" id="pq" placeholder="Chercher un joueur…" value="${esc(pq)}" style="margin-bottom:10px">
     <div class="card">${list.slice(0, 150).map((o) => `<div class="row" data-opp="${esc(o.id)}">${av(o.id, o.name)}<div class="grow"><div><b>${esc(o.name)}</b>${o.both ? ' <span class="chip shobu">🔗 Shobu</span>' : ""}${C.get("opp_notes", o.id) ? " 📝" : ""}</div>
       <div class="muted small">games ${o.gw}-${o.gl} · ${fmtDate(o.last)}</div></div><span>${wl(o.w, o.l)}</span></div>`).join("") || '<div class="empty">Personne.</div>'}</div>`;
 }
@@ -1348,11 +1365,14 @@ async function sheetPlan(pid, name) {
   if (/^\d+$/.test(String(pid)) && D.cfg.sgToken) {
     try { const r = await scout(pid); const tot = r.chars.reduce((a, c) => a + c.n, 0) || 1; chars = r.chars.map((c) => ({ name: c.k, pct: Math.round((100 * c.n) / tot) })); } catch (_) {}
   }
+  if (!chars.length) chars = (Object.values(D.prep || {}).flatMap((p) => p.opps || []).find((o) => o.pid === String(pid) || o.name === name)?.chars || []).map((n) => ({ name: n }));   // (🎯 v157)
   if (!chars.length) chars = ((BK?.data?.mains || {})[pid] || Object.values(D.brackets || {}).find((b) => (b.mains || {})[pid])?.mains[pid] || (D.mains || {})[pid] || []).map((c) => ({ name: charName(c) }));
   const lu = Object.fromEntries(C.section("lineup")), mu = Object.fromEntries(C.section("mu_rate"));
   const p = planBuild({ oppChars: chars, sets: allSets(), games, lineup: lu, mu, charName, pid });
   const myName = (sl) => Object.values(D.chars || {}).find((n) => planSlug(n) === sl) || sl.replace(/_/g, " ");
-  sheet(`<h2>🗺 Plan de match · ${esc(name)}</h2>${planHTML(p, { icon: (n) => ci(n, "xs"), myName, note: C.get("opp_notes", pid) || "" })}
+  if (typeof sceneLoad === "function") await sceneLoad();
+  const vds = typeof scVodsFor === "function" ? scVodsFor(name, chars.map((c) => c.name), Object.entries(lu).filter(([, v]) => v && v.cat && v.cat !== "learn").map(([k]) => myName(k))) : "";
+  sheet(`<h2>🗺 Plan de match · ${esc(name)}</h2>${planHTML(p, { icon: (n) => ci(n, "xs"), myName, note: C.get("opp_notes", pid) || "" })}${vds}
     <div class="btns">${/^\d+$/.test(String(pid)) ? `<button class="btn" data-scout="${esc(pid)}" data-name="${esc(name)}">🔭 Scouting</button>` : ""}${closeBtn()}</div>`);
 }
 async function sheetScout(pid, name, refresh) {
@@ -1469,6 +1489,7 @@ document.addEventListener("click", async (e) => {
   const seg = e.target.closest("[data-seg]"); if (seg) { tourSeg = seg.dataset.seg; return render(); }
   const sc = e.target.closest("[data-scout]"); if (sc && sc.dataset.scout) { if (CUR && sc.closest("#sheet")) BACK = CUR; CUR = null; return sheetScout(sc.dataset.scout, sc.dataset.name); }
   const pln = e.target.closest("#sheet [data-plan]"); if (pln) return sheetPlan(pln.dataset.plan, pln.dataset.pn);     // (🗺 v146)
+  const plh = e.target.closest("[data-plan-home]"); if (plh) { CUR = BACK = null; return sheetPlan(plh.dataset.planHome, plh.dataset.name); }     // (🎯 v157)
   const bkj = e.target.closest("#sheet [data-bkjgo]"); if (bkj && BK) return bkCenter(bkj.dataset.bkjgo);
   const bkp = e.target.closest("#sheet [data-bkp]"); if (bkp && BK) { BK.hl = BK.hl === bkp.dataset.bkp ? null : bkp.dataset.bkp; const sc = $(".bk-wrap")?.scrollLeft; drawBracket(); if ($(".bk-wrap")) $(".bk-wrap").scrollLeft = sc || 0; return; }
   const op0 = e.target.closest("#sheet [data-opp]"); if (op0) { if (CUR) BACK = CUR; CUR = null; return sheetOpp(op0.dataset.opp); }
