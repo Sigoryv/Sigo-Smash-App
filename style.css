@@ -472,3 +472,38 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 .bk-set.proj .bk-p.pj { font-style: italic; }
 
 .bk-ch.bk-mn { opacity: .55; }
+
+/* 🎲 v145 : les probabilités de la run prévue */
+.bkj-sim { font-size: 12px; margin: 2px 0 4px; }
+.bkj-pc { font-size: 10px; opacity: .75; margin-left: 2px; white-space: nowrap; }
+
+/* 🗺 v146 : le plan de match */
+.bkj-plan { font-size: 12px; padding: 2px 6px; border-radius: 999px; border: 1px solid #e8a33d55; background: transparent; cursor: pointer; margin-right: 2px; }
+.pl { display: flex; flex-direction: column; gap: 10px; }
+.pl-top { font-size: 14px; }
+.pl-note { font-size: 13px; padding: 6px 10px; border-left: 3px solid #e8a33d; background: rgba(232,163,61,.08); border-radius: 4px; white-space: pre-wrap; }
+.pl-ch { border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 8px 12px; }
+.pl-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.pl-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0; font-size: 13px; }
+.pl-k { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; opacity: .6; width: 92px; flex: none; }
+.pl-m { font-size: 12px; opacity: .65; }
+.pl-st { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid; }
+.pl-st.ok { color: #5fd38d; border-color: #5fd38d66; }
+.pl-st.no { color: #ff6b5f; border-color: #ff6b5f66; text-decoration: line-through; }
+.pl-st small { opacity: .7; }
+.pl-foot { margin-top: 2px; }
+
+/* 🎭 v147 : la saisie rapide des persos */
+.fill-nudge { border: 1px dashed #e8a33d88; background: rgba(232,163,61,.06); color: inherit; cursor: pointer; }
+.fill-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 12px; }
+.fill-c { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 76px; padding: 8px 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03); color: inherit; font-size: 11px; }
+.fill-c .ci { width: 40px; height: 40px; }
+.fill-c.on { border-color: #e8a33d; background: rgba(232,163,61,.15); }
+.fill-other { max-width: 160px; }
+/* v148 : le récap du tournoi */
+.recap .rc-f { margin: 4px 0; padding: 5px 8px; border-radius: 8px; background: var(--panel2); }
+.recap .rc-f.ok { border-left: 3px solid var(--green); }
+.recap .rc-f.warn { border-left: 3px solid var(--accent2); }
+.recap textarea { width: 100%; min-height: 110px; }
+/* 🎯 v150 : gros brackets : seuls les sets proches de l'écran sont dessinés */
+.bk-slot { content-visibility: auto; }
