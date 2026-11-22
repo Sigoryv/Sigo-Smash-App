@@ -322,6 +322,14 @@ const Q_GROUP = `query G($id: ID!, $page: Int!, $per: Int!) { phaseGroup(id: $id
     phaseGroup { id displayIdentifier phase { id } }
     slots { prereqId prereqType entrant { id name initialSeedNum participants { player { id } } } standing { stats { score { value } } } }
     games { selections { entrant { id } selectionValue } } } } } }`;
+/* 🎯 v150 : les poules où tu joues, pour ouvrir le bracket directement dessus */
+const Q_FOCUS = `query F($id: ID!, $p: [ID]) { event(id: $id) { sets(page: 1, perPage: 60, filters: {playerIds: $p}) { nodes { phaseGroup { id } slots { entrant { participants { player { id } } } } } } } }`;
+async function bkFocusGroups(eid, pids) {
+  const foc = {}; if (!pids.length) return foc;
+  try { for (const n of (await gql(Q_FOCUS, { id: eid, p: pids })).event?.sets?.nodes || []) for (const sl of n.slots || []) for (const pa of sl?.entrant?.participants || []) {
+    const pid = String(pa?.player?.id || ""), gid = String(n.phaseGroup?.id || ""); if (gid && pids.includes(pid)) (foc[gid] ||= new Set()).add(pid); } } catch (_) {}
+  return foc;
+}
 async function loadGroup(gid) {
   for (const per of [16, 8, 4]) {
     try {
@@ -365,10 +373,11 @@ async function loadBracket(eid) {
       { const u = new Map(); for (const x of sets) u.set(x.id, x); sets.length = 0; sets.push(...u.values()); }   // (v90 : un set lu deux fois pendant une mise à jour : sa dernière version)
       const partial = total * per > 1800, extra = {};                                      // (🧩 v144 : toutes les poules d'un gros tournoi)
       if (partial) try { for (const p of (await gql(Q_PGROUPS, { id: eid })).event?.phases || []) extra[String(p.id)] = p.phaseGroups?.nodes || []; } catch (_) {}
+      const foc = partial ? await bkFocusGroups(eid, D.player?.id ? [String(D.player.id)] : []) : {};
       const phases = (ev.phases || []).slice().sort((a, b) => (a.phaseOrder || 0) - (b.phaseOrder || 0)).map((p) => {
         const gs = new Map(); for (const st of sets.filter((x) => x.phase === String(p.id))) { if (!gs.has(st.group)) gs.set(st.group, { id: st.group, name: st.gname, sets: [] }); gs.get(st.group).sets.push(st); }
         for (const n of extra[String(p.id)] || []) if (!gs.has(String(n.id))) gs.set(String(n.id), { id: String(n.id), name: n.displayIdentifier || "", sets: [] });
-        if (partial) for (const x of gs.values()) x.lazy = true;
+        if (partial) for (const x of gs.values()) { x.lazy = true; if (foc[x.id]) x.focus = [...foc[x.id]]; }
         return { id: String(p.id), name: p.name, type: p.bracketType || "", seeds: p.numSeeds || 0, ngroups: p.groupCount || 0, groups: [...gs.values()].sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name)) };
       }).filter((p) => p.groups.length);
       return { eid, partial, name: ev.name, tournament: ev.tournament?.name || "", events: (ev.tournament?.events || []).map((x) => ({ id: String(x.id), name: x.name || "", n: x.numEntrants || 0 })), state: ev.state === "COMPLETED" ? "done" : ev.state === "ACTIVE" ? "live" : "next", me: String(D.player?.id || ""), phases, at: now() };
@@ -580,7 +589,7 @@ function drawBracket() {
   SHEET_KEEP = !!r && !$("#sheet-back").hidden && BK.drawn === dk && CUR === BKDRAW; if (r) BK.drawn = dk;
   if (!r) return sheet(`<h2>🏆 ${esc(BK.title)}</h2><div class="card muted">Lecture du bracket…</div><div class="btns">${closeBtn()}</div>`);
   CUR = BKDRAW;
-  const meIn = (g) => g.sets.some((s) => s.slots.some((x) => x && isMeBk(x, r)));
+  const meIn = (g) => g.sets.some((s) => s.slots.some((x) => x && isMeBk(x, r))) || (!!r.me && (g.focus || []).includes(String(r.me)));
   if (!r.phases.some((p) => p.id === BK.phase)) { const ph = r.phases.slice().reverse().find((p) => p.groups.some(meIn)) || r.phases[r.phases.length - 1]; BK.phase = ph?.id; BK.group = (ph?.groups.find(meIn) || ph?.groups[0])?.id; }
   const ph = r.phases.find((p) => p.id === BK.phase), g = ph?.groups.find((x) => x.id === BK.group) || ph?.groups[0];
   const gWait = g && g.lazy && bkGroupFill(r, g);             // (🧩 v144 : la poule lue en entier)
@@ -591,7 +600,10 @@ function drawBracket() {
   const pr = projOn && g && !pool0 ? BK.projAll.get(`${ph.id}|${g.id}`) || bkjAll(g.sets, g.byes || []) : null;
   const steps = projOn && g && !pool0 && (BK.hl || r.me) ? bkjRun(g.sets, bkFocus(r), g.byes || [], pr) : null;
   const who = BK.hl ? (g?.sets.flatMap((s) => s.slots).find((x) => x && x.id === BK.hl)?.name || "Joueur suivi") : "Toi";
-  const strip = !projOn || !g || pool0 ? "" : steps?.length ? bkjHTML(steps, { who, goAttr: "data-bkjgo" }) : `<div class="bkj"><div class="bkj-h">🔮 <b>Run prévue</b> : tout le tableau est rempli (🔮), la meilleure seed gagnant chaque set à venir (↗ = vainqueur prévu). ${steps ? esc(who) + " n'est pas dans ce tableau." : "Touche un joueur pour voir sa run."}</div></div>`;
+  const sk = `${r.at}|${BK.hl || "me"}|${Object.keys(BK.gsets || {}).length}`;      // (🎲 v145 : les probabilités, une fois par lecture)
+  if (steps?.length && BK.simKey !== sk) { BK.simKey = sk; BK.sim = bkjSim(r, bkpIsPool, bkFocus(r), { n: 250, youMe: (x) => isMeBk(x, r), h2h: bkjH2H(D.sets) }); }
+  const fin = r.phases.filter((p) => !bkpIsPool(p)).length <= 1 || (ph?.groups || []).some((x) => x.sets.some((s) => s.round >= 99));
+  const strip = !projOn || !g || pool0 ? "" : steps?.length ? bkjHTML(steps, { who, goAttr: "data-bkjgo", planAttr: "data-plan", sim: BK.sim, simLine: bkjSimLine(BK.sim, `${ph.id}|${g.id}`, fin) }) : `<div class="bkj"><div class="bkj-h">🔮 <b>Run prévue</b> : tout le tableau est rempli (🔮), la meilleure seed gagnant chaque set à venir (↗ = vainqueur prévu). ${steps ? esc(who) + " n'est pas dans ce tableau." : "Touche un joueur pour voir sa run."}</div></div>`;
   const col = (lab, l) => `<div class="bk-col"><div class="bk-rd">${esc(lab)}</div><div class="bk-sets">${l.map(bkSet).join("")}</div></div>`;
   const cmp = (a, b) => a.ident.length - b.ident.length || a.ident.localeCompare(b.ident) || (a.order || 0) - (b.order || 0);
   const side = (pos) => { const m = new Map(); for (const s of (g?.sets || [])) if ((pos ? s.round > 0 : s.round < 0) && !isGF(s)) { if (!m.has(s.round)) m.set(s.round, []); m.get(s.round).push(s); }
@@ -984,6 +996,7 @@ function viewHome() {
       <div class="small">Ton 1er set, tes adversaires probables et leur scouting : touche pour ouvrir.</div></div>`).join("")}
     ${ask ? '<button class="btn" data-act="notif" style="width:100%;margin-bottom:10px">🔔 Activer les alertes (prochain adversaire, set lancé)</button>' : ""}
     ${typeof wtpHome === "function" ? wtpHome() : ""}
+    ${(() => { const n = fillTodo(sets, games).length; return n ? `<button class="card fill-nudge" data-act="fill" style="width:100%;text-align:left">🎭 <b>${n} set${n > 1 ? "s" : ""} sans persos</b> <span class="muted small">· touche pour les compléter (2 appuis par set) : tes stats par perso et par matchup en tiennent compte</span></button>` : ""; })()}
     <div class="kpis"><div class="kpi"><b>${st.pct} %</b><span>sets ${st.W}-${st.L}</span></div><div class="kpi"><b>${st.gpct} %</b><span>games ${st.gw}-${st.gl}</span></div><div class="kpi"><b>${st.tours.length}</b><span>tournois</span></div></div>
     ${up.length ? `<h2>🗓 À venir</h2>${up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div><div class="muted small">${esc(fmtDay(u.start))} · <b>${countdown(u.start)}</b>${u.events[0]?.me?.seed ? ` · seed ${u.events[0].me.seed}` : ""}</div></div>›</div>`).join("")}` : ""}
     ${t ? `<h2>🏆 Dernier tournoi</h2><div class="card" data-tour="${esc(t.key)}"><div class="banner" ${t.tbanner ? `style="background-image:url('${esc(t.tbanner)}')"` : ""}></div>
@@ -1113,8 +1126,24 @@ function sheetTour(k) {
     res: s.dq ? "wait" : s.win ? "w" : "l", score: s.dq ? "DQ" : `${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}`, upset: s.win && st.uf(s) > 0 }));
   sheet(`${tourHead(t.name, t.tbanner, `${fmtDate(t.ts)} · ${t.entrants || "?"} joueurs · seed ${t.seed || "?"} → <b>${ordinal(t.place)}</b> · ${wl(t.w, t.l)}`, t.url)}
     <div class="card"><h3>🏁 Ma run</h3>${run.map((r) => runRow(r, st, run)).join("")}</div>
+    ${recapCard(t, st)}
     ${t.sets[0]?.eid ? `<button class="btn" data-act="bracket" data-eid="${esc(t.sets[0].eid)}" data-title="${esc(t.name)}" style="width:100%">🏆 Voir le bracket</button>` : ""}
     <div class="btns">${closeBtn()}<button class="btn accent" data-act="share" data-k="${esc(k)}">📤 Partager</button></div>`);
+}
+/* 🏆 v148 : le récap du tournoi (le même calcul que le bilan du Hub, plan.js) et « Ce que je retiens » */
+function recapCard(t, st) {
+  const f = recapFacts(t, st.uf), li = (c, h) => `<div class="small rc-f ${c}">${h}</div>`;
+  const facts = [
+    f.won ? li("ok", "🏆 Tournoi gagné !") : "",
+    f.best ? li("ok", `🏅 Meilleure victoire : <b>${esc(f.best.opp)}</b> (seed ${f.best.opp_seed})`) : "",
+    f.exploits.length ? li("ok", `🔥 Exploit${f.exploits.length > 1 ? "s" : ""} : ${f.exploits.map((s) => `<b>${esc(s.opp)}</b>`).join(", ")}`) : "",
+    f.contre.length ? li("warn", `⚠ Contre-perf : ${f.contre.map((s) => `<b>${esc(s.opp)}</b>`).join(", ")}`) : "",
+    f.close.length ? li("", `⚖ ${f.close.length} set${f.close.length > 1 ? "s" : ""} serré${f.close.length > 1 ? "s" : ""} (dernière game) : ${f.closeW} V – ${f.closeL} D`) : "",
+    f.out ? li("", `🚪 Sorti par <b>${esc(f.out.opp)}</b> · ${esc(dayLab(f.out.round || ""))} · ${esc(f.out.score?.join("-") || "")}`) : "",
+  ].filter(Boolean).join("");
+  return `<div class="card recap"><h3>🔎 À retenir</h3>${facts || '<div class="muted small">Rien de marquant.</div>'}
+    <label style="margin-top:8px">📝 Ce que je retiens</label><textarea id="tnote" placeholder="Ce qui a marché, ce qui n'a pas marché, à travailler…">${esc(C.get("tour_notes", t.key) || "")}</textarea>
+    <div class="btns"><button class="btn" data-act="tnote-draft" data-k="${esc(t.key)}">✍ Brouillon</button><button class="btn accent" data-act="save-tnote" data-eid="${esc(t.key)}">Enregistrer</button></div></div>`;
 }
 function bracketPath(ev) {
   const seeded = ev.list.filter((e) => e.seed), N = seeded.length, s = ev.me?.seed;
@@ -1284,9 +1313,10 @@ function sheetUp(tid) {
 function upRunHTML(ev, st) {
   const r = (D.brackets || {})[ev.eid]; if (!r || !r.me) return "";
   const blocks = bkjRunAll(r, (x) => isMeBk(x, r), bkpIsPool); if (!blocks.length) return "";
+  const sim = bkjSim(r, bkpIsPool, (x) => isMeBk(x, r), { n: 250, h2h: bkjH2H(D.sets) });      // (🎲 v145)
   const seen = new Set(), opps = blocks.flatMap((b) => b.steps).filter((t) => t.opp && !seen.has(t.opp.id) && seen.add(t.opp.id));   // (un adversaire prévu → son scouting)
   return opps.map((t) => runRow({ label: t.s.label || (t.side === "l" ? "Losers " : "") + "Tour " + Math.abs(t.s.round), name: t.opp.name, pid: t.opp.pid, seed: t.opp.seed, res: t.done ? t.res : "next" }, st)).join("")
-    + blocks.map((b) => `${r.phases.length > 1 ? `<div class="muted small" style="margin-top:6px"><b>${esc(b.ph.name)}${b.ph.groups.length > 1 && b.g.name ? " · " + esc(b.g.name) : ""}</b></div>` : ""}${bkjHTML(b.steps, { who: "Toi", goAttr: `data-eid="${esc(ev.eid)}" data-act="bracket" data-title="${esc(r.name || "Bracket")}" data-set` })}`).join("");
+    + blocks.map((b) => `${r.phases.length > 1 ? `<div class="muted small" style="margin-top:6px"><b>${esc(b.ph.name)}${b.ph.groups.length > 1 && b.g.name ? " · " + esc(b.g.name) : ""}</b></div>` : ""}${bkjHTML(b.steps, { who: "Toi", sim, simLine: bkjSimLine(sim, `${b.ph.id}|${b.g.id}`, b === blocks[blocks.length - 1] && !blocks.slice(0, -1).length ? true : b.g.sets.some((x) => x.round >= 99)), goAttr: `data-eid="${esc(ev.eid)}" data-act="bracket" data-title="${esc(r.name || "Bracket")}" data-set` })}`).join("");
 }
 const UPB = {};                                  // (la dernière tentative de lecture, par épreuve : une seule à la fois, au plus toutes les 10 min)
 async function upBrackets(u, tid) {
@@ -1308,6 +1338,22 @@ async function loadLive(u) {
     try { await liveRun(ev); } catch (e) { const el = $(`#live-${CSS.escape(ev.eid)}`); if (el) el.insertAdjacentHTML("beforeend", `<div class="muted small">⚠ ${esc(e.message)}</div>`); continue; }
     const el = $(`#live-${CSS.escape(ev.eid)}`); if (el) el.innerHTML = liveHTML(D.live[ev.eid], st);
   }
+}
+/* 🗺 v146 : le plan de match (plan.js) : ses persos (scouting start.gg, sinon ses mains), ton counterpick (ta line up,
+   tes notes de MU), les stages d'après tes games, ton face-à-face, tes notes */
+async function sheetPlan(pid, name) {
+  const me = () => sheetPlan(pid, name); if (CUR && CUR !== me) BACK = CUR; CUR = me;
+  sheet(`<h2>🗺 Plan de match · ${esc(name)}</h2><div class="muted small">Ses persos…</div>`);
+  let chars = [];
+  if (/^\d+$/.test(String(pid)) && D.cfg.sgToken) {
+    try { const r = await scout(pid); const tot = r.chars.reduce((a, c) => a + c.n, 0) || 1; chars = r.chars.map((c) => ({ name: c.k, pct: Math.round((100 * c.n) / tot) })); } catch (_) {}
+  }
+  if (!chars.length) chars = ((BK?.data?.mains || {})[pid] || Object.values(D.brackets || {}).find((b) => (b.mains || {})[pid])?.mains[pid] || (D.mains || {})[pid] || []).map((c) => ({ name: charName(c) }));
+  const lu = Object.fromEntries(C.section("lineup")), mu = Object.fromEntries(C.section("mu_rate"));
+  const p = planBuild({ oppChars: chars, sets: allSets(), games, lineup: lu, mu, charName, pid });
+  const myName = (sl) => Object.values(D.chars || {}).find((n) => planSlug(n) === sl) || sl.replace(/_/g, " ");
+  sheet(`<h2>🗺 Plan de match · ${esc(name)}</h2>${planHTML(p, { icon: (n) => ci(n, "xs"), myName, note: C.get("opp_notes", pid) || "" })}
+    <div class="btns">${/^\d+$/.test(String(pid)) ? `<button class="btn" data-scout="${esc(pid)}" data-name="${esc(name)}">🔭 Scouting</button>` : ""}${closeBtn()}</div>`);
 }
 async function sheetScout(pid, name, refresh) {
   const st = stats(allSets()), mine = st.opps.find((o) => o.id === pid);
@@ -1334,6 +1380,38 @@ function sheetOpp(pid) {
   const o = stats(allSets()).opps.find((x) => x.id === pid); if (!o) return;
   sheet(`<h2>🆚 ${esc(o.name)} <span class="small">${wl(o.w, o.l)}</span></h2><div class="muted small">games ${o.gw}-${o.gl}</div>
     ${oppBlock(pid, o.name, o)}<div class="btns">${BACK ? closeBtn() : ""}${/^\d+$/.test(pid) ? `<button class="btn" data-scout="${esc(pid)}" data-name="${esc(o.name)}">🔭 Scouter</button>` : ""}<button class="btn accent" data-act="save-opp" data-pid="${esc(pid)}">Enregistrer</button></div>`);
+}
+/* 🎭 v147 : compléter les persos des sets, un par un : ton perso, puis le sien → enregistré, le suivant */
+function sheetFill(skip = []) {
+  const todo = fillTodo(allSets(), games).filter((s) => !skip.includes(s.id));
+  CUR = () => sheetFill(skip);
+  if (!todo.length) { sheet(`<h2>🎭 Persos</h2><div class="card">Tous tes sets récents ont leurs persos. 👍</div><div class="btns">${closeBtn()}</div>`); return; }
+  const s = todo[0], F = (window.FILL ||= {});
+  if (F.id !== s.id) { F.id = s.id; F.me = ""; F.opp = ""; }
+  const lu = C.section("lineup").filter(([, v]) => v && v.cat !== "learn").sort((a, b) => (a[1].ord || 0) - (b[1].ord || 0)).map(([sl]) => Object.values(D.chars || {}).find((n) => planSlug(n) === sl) || "");
+  const oppMains = (D.mains || {})[s.opp_id] || Object.values(D.brackets || {}).map((b) => (b.mains || {})[s.opp_id]).find(Boolean) || (D.scout?.[s.opp_id]?.chars || []).map((c) => c.k);
+  const ch = fillChoices({ sets: allSets(), games, charName, set: s, lineupNames: lu, oppMains });
+  const all = [...new Set(Object.values(D.chars || {}))].sort();
+  const pick = (who, list, cur) => `<div class="fill-row">${list.map((n) => `<button class="fill-c ${cur === n ? "on" : ""}" data-act="fill-pick" data-who="${who}" data-v="${esc(n)}">${ci(n, "")}<span>${esc(n)}</span></button>`).join("")}
+      <select class="fill-other" data-who="${who}"><option value="">Autre…</option>${all.map((n) => `<option ${cur === n && !list.includes(n) ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>`;
+  sheet(`<h2>🎭 ${esc(s.opp)} <span class="muted small">${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"} ${s.win ? "✅" : "❌"}</span></h2>
+    <div class="muted small">${fmtDate(s.ts)} · ${esc(s.tournament)}${s.round ? " · " + esc(s.round) : ""} · encore ${todo.length} set${todo.length > 1 ? "s" : ""}</div>
+    <h3>Toi</h3>${pick("me", ch.me, F.me)}
+    <h3>${esc(s.opp)}</h3>${pick("opp", ch.him, F.opp)}
+    <div class="muted small">Un perso pour tout le set ; pour le détail game par game, ouvre le set dans le Hub.</div>
+    <div class="btns"><button class="btn" data-act="fill-skip" data-id="${esc(s.id)}">Passer</button>${closeBtn()}</div>`);
+  document.querySelectorAll("#sheet .fill-other").forEach((el) => { el.onchange = () => fillPick(el.dataset.who, el.value); });
+}
+function fillPick(who, v) {
+  const skip = window.FILLSKIP || [];
+  const F = window.FILL; if (!F || !v) return;
+  F[who] = v;
+  if (F.me && F.opp) {
+    const s = allSets().find((x) => x.id === F.id);
+    if (s) { C.set("games", s.id, fillGames(s, F.me, F.opp)); toast(`🎭 ${F.me} vs ${F.opp} : enregistré.`); }
+    F.id = null;
+  }
+  sheetFill(skip);
 }
 function sheetSet(id) {
   const s = allSets().find((x) => x.id === id); if (!s) return;
@@ -1390,6 +1468,7 @@ document.addEventListener("click", async (e) => {
   if (e.target.id === "sheet-back") return closeSheet();
   const seg = e.target.closest("[data-seg]"); if (seg) { tourSeg = seg.dataset.seg; return render(); }
   const sc = e.target.closest("[data-scout]"); if (sc && sc.dataset.scout) { if (CUR && sc.closest("#sheet")) BACK = CUR; CUR = null; return sheetScout(sc.dataset.scout, sc.dataset.name); }
+  const pln = e.target.closest("#sheet [data-plan]"); if (pln) return sheetPlan(pln.dataset.plan, pln.dataset.pn);     // (🗺 v146)
   const bkj = e.target.closest("#sheet [data-bkjgo]"); if (bkj && BK) return bkCenter(bkj.dataset.bkjgo);
   const bkp = e.target.closest("#sheet [data-bkp]"); if (bkp && BK) { BK.hl = BK.hl === bkp.dataset.bkp ? null : bkp.dataset.bkp; const sc = $(".bk-wrap")?.scrollLeft; drawBracket(); if ($(".bk-wrap")) $(".bk-wrap").scrollLeft = sc || 0; return; }
   const op0 = e.target.closest("#sheet [data-opp]"); if (op0) { if (CUR) BACK = CUR; CUR = null; return sheetOpp(op0.dataset.opp); }
@@ -1424,12 +1503,17 @@ document.addEventListener("click", async (e) => {
   if (act === "settings") return sheetSettings();
   if (act === "rescout") return sheetScout(el.dataset.pid, el.dataset.name, true);
   if (act === "save-opp") { C.set("opp_notes", el.dataset.pid, $("#opp-note").value.trim()); toast("📝 Note enregistrée."); if (BACK) { const b = BACK; BACK = null; return b(); } return closeSheet(); }
+  if (act === "tnote-draft") { const st = stats(allSets()), t = st.tours.find((x) => x.key === el.dataset.k), n = $("#tnote"); if (!t || !n) return;
+    const d = recapNote(t, recapFacts(t, st.uf), (r) => dayLab(r || "")); n.value = n.value.trim() ? n.value.trimEnd() + "\n\n" + d : d; return n.focus(); }
   if (act === "save-tnote") { C.set("tour_notes", el.dataset.eid, $("#tnote").value.trim()); return toast("📝 Enregistré."); }
   if (act === "wake") { localStorage.setItem("sigo.wake", wakePref() ? "0" : "1"); await wakeSync(); toast(wakePref() ? "🔆 L'écran reste allumé pendant le tournoi." : "Écran : veille normale."); return CUR === DAYDRAW ? sheetDay(DAY, true) : render(); }
   if (act === "save-mu") { C.set("matchups", el.dataset.k, $("#mu-text").value.trim()); toast("📒 Fiche enregistrée."); return closeSheet(); }
   if (act === "mu-new") { const k = prompt("Fiche matchup : quel personnage ?"); if (k && k.trim()) sheetMu(k.trim()); return; }
   if (act === "mark-add") { $("#marks").insertAdjacentHTML("beforeend", markRow()); $("#marks .mark:last-child .mk-t").focus(); return; }
   if (act === "mark-go") { const u = $("#vod-url").value.trim(); if (!/^https?:\/\//.test(u)) return toast("Mets d'abord le lien de la VOD.", true); window.open(vodAt(u, secs(el.parentElement.querySelector(".mk-t").value) || 0), "_blank", "noopener"); return; }
+  if (act === "fill") { BACK = null; window.FILLSKIP = []; return sheetFill([]); }   // (🎭 v147)
+  if (act === "fill-pick") return fillPick(el.dataset.who, el.dataset.v);
+  if (act === "fill-skip") { (window.FILLSKIP ||= []).push(el.dataset.id); return sheetFill(window.FILLSKIP); }
   if (act === "save-set") {
     const id = el.dataset.id;
     C.set("notes", id, $("#set-note").value.trim());
