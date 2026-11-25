@@ -531,3 +531,4 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 .mu-mk { border-left: 3px solid transparent; } .mu-mk.err { border-left-color: var(--red); } .mu-mk.ok { border-left-color: var(--green); }
 /* 🗂 v163 : la 2e rangée de Persos (Matchups, Mes persos) */
 .seg.lu-sub { margin: -4px 0 10px; font-size: .92em; }
+.sr-box { display: grid; gap: 4px; } .sr-box .vd-for-h { margin-bottom: 4px; }
