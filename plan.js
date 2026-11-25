@@ -104,3 +104,87 @@ function recapNote(t, f, round = (r) => r || "") {
   L.push("", "Ce qui a marché :", "- ", "", "À travailler :", "- ");
   return L.join("\n");
 }
+
+/* ------------------------------------------------------------ 🎬 la revue guidée (v158), Hub et téléphone */
+const RV_CATS = [["neutral", "Neutral", "🎯"], ["edge", "Edgeguard", "🪂"], ["ledge", "Ledge", "🧗"], ["punish", "Punish / combo", "👊"],
+                 ["def", "Défense / DI", "🛡"], ["recov", "Recovery", "↩"], ["stage", "Stage / plateformes", "🗺"], ["mental", "Mental / adaptation", "🧠"]];
+const RV_KINDS = { err: ["❌", "Erreur"], ok: ["✅", "Bien joué"], idea: ["💡", "Idée"] };
+const rvCatName = (c) => (RV_CATS.find((x) => x[0] === c) || [c, c])[1];
+const rvCatIcon = (c) => (RV_CATS.find((x) => x[0] === c) || [0, 0, "•"])[2];
+const rvKindIcon = (k) => (RV_KINDS[k] || RV_KINDS.err)[0];
+/* le matchup d'un moment : la game notée (sinon les persos les plus joués du set) → [mon perso, le sien] */
+function rvMatchup(games, g) {
+  const gs = games || [], one = g && gs.find((x) => +x.n === +g);
+  if (one) return [one.me || "", one.opp || ""];
+  const top = (k) => { const m = new Map(); for (const x of gs) if (x[k]) m.set(x[k], (m.get(x[k]) || 0) + 1); return [...m].sort((a, b) => b[1] - a[1])[0]?.[0] || ""; };
+  return [top("me"), top("opp")];
+}
+/* tous les moments catégorisés : { set, t, secs, cat, kind, text, g, me, opp, ts, url } (les plus récents d'abord) */
+function rvMarks(sets, gamesOf, vods) {
+  const out = [], byId = new Map(sets.map((s) => [String(s.id), s]));
+  for (const [id, v] of Object.entries(vods || {})) {
+    const s = byId.get(String(id)); if (!s || !v) continue;
+    for (const m of v.marks || []) {
+      if (!m.cat) continue;
+      const [me, opp] = rvMatchup(gamesOf(s), m.g);
+      const p = String(m.t).split(":").map(Number), secs = p.reduce((a, x) => a * 60 + (x || 0), 0);
+      out.push({ set: s, t: m.t, secs, cat: m.cat, kind: m.kind || "err", text: m.text || "", g: m.g || null, me, opp, ts: s.ts || "", url: v.url || "" });
+    }
+  }
+  return out.sort((a, b) => (b.ts || "").localeCompare(a.ts || "") || a.secs - b.secs);
+}
+/* 📊 les erreurs récurrentes : par catégorie (et l'évolution : la moitié la plus récente des sets revus contre l'autre), par matchup */
+function rvStats(marks) {
+  const sets = [...new Set(marks.map((m) => String(m.set.id)))], recent = new Set(sets.slice(0, Math.ceil(sets.length / 2)));
+  const nR = recent.size || 1, nO = Math.max(1, sets.length - recent.size);
+  const cats = RV_CATS.map(([c, name, icon]) => {
+    const ms = marks.filter((m) => m.cat === c), err = ms.filter((m) => m.kind === "err");
+    const rN = err.filter((m) => recent.has(String(m.set.id))).length, oN = err.length - rN;
+    return { c, name, icon, err: err.length, ok: ms.filter((m) => m.kind === "ok").length, idea: ms.filter((m) => m.kind === "idea").length,
+             trend: sets.length >= 4 ? +(rN / nR - oN / nO).toFixed(1) : null, last: err[0] || null };
+  }).filter((x) => x.err + x.ok + x.idea).sort((a, b) => b.err - a.err || b.ok - a.ok);
+  const mu = new Map();
+  for (const m of marks.filter((x) => x.kind === "err" && x.opp)) { const k = m.opp, e = mu.get(k) || { opp: k, n: 0, cats: new Map(), sets: new Set() }; e.n++; e.sets.add(String(m.set.id)); e.cats.set(m.cat, (e.cats.get(m.cat) || 0) + 1); mu.set(k, e); }
+  return { sets: sets.length, marks: marks.length, cats, mu: [...mu.values()].map((e) => ({ opp: e.opp, n: e.n, sets: e.sets.size, top: [...e.cats].sort((a, b) => b[1] - a[1]).slice(0, 3) })).sort((a, b) => b.n - a.n) };
+}
+/* 🗺 pour le plan de match : tes erreurs fréquentes contre ces persos (avec un exemple horodaté) */
+function rvForPlan(marks, chars) {
+  const set = new Set((chars || []).map((c) => String(c).toLowerCase()));
+  const ms = marks.filter((m) => m.kind === "err" && set.has(String(m.opp).toLowerCase()));
+  if (!ms.length) return null;
+  const by = new Map(); for (const m of ms) by.set(m.cat, [...(by.get(m.cat) || []), m]);
+  return { n: ms.length, sets: new Set(ms.map((m) => String(m.set.id))).size, top: [...by].sort((a, b) => b[1].length - a[1].length).slice(0, 3).map(([c, l]) => ({ c, n: l.length, ex: l.find((m) => m.text) || l[0] })) };
+}
+
+/* ===================================================================== 📒 v159 : le carnet d'un matchup
+   o = { k (le perso d'en face, son nom), sets, games(s), vods, charName(v), now? (Date, pour les tests) }
+   → { w, l, sets, byMe: [{k, w, l}], byStage: [{k, w, l}], form: [true/false…] (les 10 dernières games, récentes d'abord),
+       trend: { r: %, o: %, nR, nO } | null (6 derniers mois contre avant, 3 games de chaque côté au moins),
+       players: [{ id, name, w, l, sets, last }] (ceux qui l'ont joué contre toi), marks (tes moments de revue dans ce matchup),
+       review: rvForPlan(…) | null, good: n (✅), vodSets: [{ set, url, n }] (tes sets filmés contre lui, n = moments catégorisés) } */
+function muBook(o) {
+  const K = String(o.k || "").toLowerCase(), cn = (v) => String(o.charName(v) || "");
+  const is = (v) => cn(v).toLowerCase() === K;
+  const G = [], P = new Map(), S = new Set();
+  for (const s of o.sets || []) {
+    if (s.dq) continue;
+    for (const g of o.games(s) || []) {
+      if (g.win == null || !is(g.opp)) continue;
+      G.push({ s, me: cn(g.me), stage: g.stage || "", win: !!g.win, ts: s.ts || "", i: G.length }); S.add(String(s.id));
+      const id = String(s.opp_id || s.opp), p = P.get(id) || { id, name: s.opp, w: 0, l: 0, sets: new Set(), last: "" };
+      g.win ? p.w++ : p.l++; p.sets.add(String(s.id)); if ((s.ts || "") > p.last) { p.last = s.ts || ""; p.name = s.opp; } P.set(id, p);
+    }
+  }
+  G.sort((a, b) => b.ts.localeCompare(a.ts) || b.i - a.i);
+  const by = (f) => { const m = new Map(); for (const g of G) { const k = f(g); if (!k) continue; const x = m.get(k) || { k, w: 0, l: 0 }; g.win ? x.w++ : x.l++; m.set(k, x); } return [...m.values()].sort((a, b) => (b.w + b.l) - (a.w + a.l) || a.k.localeCompare(b.k)); };
+  const cut = new Date((o.now || new Date()).getTime() - 182 * 864e5).toISOString().slice(0, 10);
+  const R = G.filter((g) => g.ts.slice(0, 10) >= cut), O = G.filter((g) => g.ts.slice(0, 10) < cut);
+  const pc = (l) => Math.round((100 * l.filter((g) => g.win).length) / l.length);
+  const marks = rvMarks(o.sets || [], o.games, o.vods || {}).filter((m) => is(m.opp));
+  const vodSets = (o.sets || []).filter((s) => S.has(String(s.id)) && o.vods?.[s.id]?.url).map((s) => ({ set: s, url: o.vods[s.id].url, n: (o.vods[s.id].marks || []).filter((m) => m.cat).length }))
+    .sort((a, b) => (b.set.ts || "").localeCompare(a.set.ts || ""));
+  return { k: o.k, w: G.filter((g) => g.win).length, l: G.filter((g) => !g.win).length, sets: S.size, byMe: by((g) => g.me), byStage: by((g) => g.stage),
+    form: G.slice(0, 10).map((g) => g.win), trend: R.length >= 3 && O.length >= 3 ? { r: pc(R), o: pc(O), nR: R.length, nO: O.length } : null,
+    players: [...P.values()].map((p) => ({ ...p, sets: p.sets.size })).sort((a, b) => (b.w + b.l) - (a.w + a.l) || b.last.localeCompare(a.last)),
+    marks, review: rvForPlan(marks, [o.k]), good: marks.filter((m) => m.kind === "ok").length, vodSets };
+}
