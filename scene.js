@@ -62,11 +62,13 @@ async function sheetRank() {
 /* ------------------------------------------------------------ 🎬 les VODs */
 function scVods() {
   const V = SCENE?.vods; if (!V) return [];
-  return V.list.map((r) => ({ id: r[0], title: r[1], ch: V.channels[r[2]] || "", at: r[3], p1: r[4], c1: r[5], p2: r[6], c2: r[7], round: r[8], event: r[9], url: "https://www.youtube.com/watch?v=" + r[0] }));
+  return V.list.map((r) => { const [vid, t] = String(r[0]).split("@");          // (📑 v160 : « vid@754 » = un set d'un stream, à 754 s)
+    return { id: vid, key: r[0], start: t ? +t : 0, title: r[1], ch: V.channels[r[2]] || "", at: r[3], p1: r[4], c1: r[5], p2: r[6], c2: r[7], round: r[8], event: r[9],
+             url: "https://www.youtube.com/watch?v=" + vid + (t ? `&t=${t}s` : "") }; });
 }
 function scVodRow(v, extra = "") {
   return `<a class="row sc-v-row" href="${esc(v.url)}" target="_blank" rel="noopener"><img class="sc-th" src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" loading="lazy" referrerpolicy="no-referrer" alt="">
-    <div class="grow"><div class="small"><b>${esc(v.title)}</b></div><div class="muted small">${esc(v.ch)} · ${esc(v.at.split("-").reverse().join("/"))}</div>
+    <div class="grow"><div class="small"><b>${esc(v.title)}</b></div><div class="muted small">${esc(v.ch)} · ${esc(v.at.split("-").reverse().join("/"))}${v.start ? ` · 📑 à ${Math.floor(v.start / 3600) ? Math.floor(v.start / 3600) + ":" : ""}${String(Math.floor(v.start / 60) % 60).padStart(Math.floor(v.start / 3600) ? 2 : 1, "0")}:${String(v.start % 60).padStart(2, "0")}` : ""}</div>
     ${v.p1 ? `<div class="small">${esc(v.p1)} ${scChars(v.c1)} <span class="muted">vs</span> ${esc(v.p2)} ${scChars(v.c2)}${v.round ? ` <span class="chip">${esc(v.round)}</span>` : ""}</div>` : ""}${extra}</div></a>`;
 }
 async function sheetVods(q) {
@@ -77,7 +79,7 @@ async function sheetVods(q) {
   const all = scVods(), words = key(SC.q).split(/\s+/).filter(Boolean), c1 = scSlug(SC.c1), c2 = scSlug(SC.c2);
   const has = (l, c) => !c || (l || []).some((x) => scSlug(x) === c || scSlug(scCharName(x)) === c);
   const res = all.filter((v) => (!words.length || words.every((w) => key(v.title).includes(w))) && (!c1 && !c2 || v.p1 && ((has(v.c1, c1) && has(v.c2, c2)) || (has(v.c2, c1) && has(v.c1, c2)))));
-  const mine = (S.vods.mine || []).filter(([sid]) => !(C.get("vods", sid) || {}).url).map(([sid, vid, sure]) => ({ s: allSets().find((x) => String(x.id) === String(sid)), v: all.find((x) => x.id === vid), sure })).filter((m) => m.s && m.v);
+  const mine = (S.vods.mine || []).filter(([sid]) => !(C.get("vods", sid) || {}).url).map(([sid, vid, sure]) => ({ s: allSets().find((x) => String(x.id) === String(sid)), v: all.find((x) => x.key === vid), sure })).filter((m) => m.s && m.v);
   const names = [...new Set(Object.values(D.chars || {}))].sort((a, b) => a.localeCompare(b));
   const opt = (v) => `<option value="">perso…</option>${names.map((n) => `<option ${v === n ? "selected" : ""}>${esc(n)}</option>`).join("")}`;
   sheet(`<h2>🎬 VODs</h2>
