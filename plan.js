@@ -186,5 +186,84 @@ function muBook(o) {
   return { k: o.k, w: G.filter((g) => g.win).length, l: G.filter((g) => !g.win).length, sets: S.size, byMe: by((g) => g.me), byStage: by((g) => g.stage),
     form: G.slice(0, 10).map((g) => g.win), trend: R.length >= 3 && O.length >= 3 ? { r: pc(R), o: pc(O), nR: R.length, nO: O.length } : null,
     players: [...P.values()].map((p) => ({ ...p, sets: p.sets.size })).sort((a, b) => (b.w + b.l) - (a.w + a.l) || b.last.localeCompare(a.last)),
-    marks, review: rvForPlan(marks, [o.k]), good: marks.filter((m) => m.kind === "ok").length, vodSets };
+    marks, review: rvForPlan(marks, [o.k]), good: marks.filter((m) => m.kind === "ok").length, vodSets,
+    nx: (nxStats(o.sets || [], o.games, o.vods || {})?.byOpp || []).find((x) => is(x.opp)) || null,       // (⚔ v164)
+    stk: (stkStats(o.sets || [], o.games, o.vods || {})?.lost.byOpp || []).find((x) => is(x.opp)) || null };  // (💀 v165 : tes stocks perdus contre lui)
+}
+
+/* ===================================================================== ⚔ v164 : les échanges en neutral (revue guidée : W / L)
+   vods[id].nx = [[secondes, gagné 1|0, game 0-9]] → { w, n, pct, sets: [{ set, ts, w, n, pct, games: [{g, w, n}] }] (du plus ancien au plus récent),
+   byOpp: [{ opp, w, n, pct, sets }], trend: { r, o } | null (la moitié récente des sets contre l'autre, 4 sets au moins) } | null */
+const nxPct = (w, n) => (n ? Math.round((100 * w) / n) : 0);
+function nxStats(sets, gamesOf, vods) {
+  const byId = new Map((sets || []).map((s) => [String(s.id), s])), per = [], opp = new Map();
+  let W = 0, N = 0;
+  for (const [id, v] of Object.entries(vods || {})) {
+    const s = byId.get(String(id)); if (!s || !v?.nx?.length) continue;
+    const games = gamesOf(s) || [], byG = new Map(); let w = 0;
+    for (const [, win, g] of v.nx) {
+      w += win ? 1 : 0;
+      const o = rvMatchup(games, g)[1] || "?", x = opp.get(o) || { opp: o, w: 0, n: 0, sets: new Set() };
+      x.w += win ? 1 : 0; x.n++; x.sets.add(String(id)); opp.set(o, x);
+      const y = byG.get(g || 0) || { g: g || 0, w: 0, n: 0 }; y.w += win ? 1 : 0; y.n++; byG.set(g || 0, y);
+    }
+    W += w; N += v.nx.length;
+    per.push({ set: s, ts: s.ts || "", w, n: v.nx.length, pct: nxPct(w, v.nx.length), games: [...byG.values()].sort((a, b) => a.g - b.g) });
+  }
+  if (!N) return null;
+  per.sort((a, b) => a.ts.localeCompare(b.ts));
+  let trend = null;
+  if (per.length >= 4) { const h = Math.floor(per.length / 2), O = per.slice(0, h), R = per.slice(h), sum = (l, k) => l.reduce((a, x) => a + x[k], 0);
+    trend = { r: nxPct(sum(R, "w"), sum(R, "n")), o: nxPct(sum(O, "w"), sum(O, "n")) }; }
+  return { w: W, n: N, pct: nxPct(W, N), sets: per, trend,
+    byOpp: [...opp.values()].map((x) => ({ opp: x.opp, w: x.w, n: x.n, pct: nxPct(x.w, x.n), sets: x.sets.size })).sort((a, b) => b.n - a.n) };
+}
+
+/* ===================================================================== 💀 v165 : le journal des stocks (revue guidée : D / K)
+   vods[id].stk = [[secondes, 0 = tu en perds un | 1 = tu en prends un, comment, % (-1 : pas noté), game]] */
+const STK_HOW = [["edge", "Edgeguard", "🪂"], ["ledge", "Au rebord", "🧗"], ["combo", "Combo / kill confirm", "👊"], ["read", "Read", "🔮"], ["raw", "Coup sec", "💥"], ["sd", "SD", "🕳"], ["other", "Autre", "•"]];
+const stkName = (h) => (STK_HOW.find((x) => x[0] === h) || STK_HOW[6])[1], stkIcon = (h) => (STK_HOW.find((x) => x[0] === h) || STK_HOW[6])[2];
+/* → { lost: side, took: side, sets } | null ; side = { n, how: [{h, n, pct}] (part en %), avg (% moyen, null), early (avant 60 %), byOpp: [{opp, n, avg, top}] } */
+function stkStats(sets, gamesOf, vods) {
+  const byId = new Map((sets || []).map((s) => [String(s.id), s])), L = [], T = [];
+  let nsets = 0;
+  for (const [id, v] of Object.entries(vods || {})) {
+    const s = byId.get(String(id)); if (!s || !v?.stk?.length) continue;
+    nsets++;
+    for (const [t, who, how, pct, g] of v.stk) (who ? T : L).push({ set: s, t, how, pct, g, opp: rvMatchup(gamesOf(s) || [], g)[1] || "?" });
+  }
+  if (!L.length && !T.length) return null;
+  const side = (l) => {
+    const c = new Map(), ps = l.filter((x) => x.pct >= 0).map((x) => x.pct);
+    for (const x of l) c.set(x.how, (c.get(x.how) || 0) + 1);
+    const o = new Map(); for (const x of l) { const y = o.get(x.opp) || []; y.push(x); o.set(x.opp, y); }
+    const avg = (a) => (a.length ? Math.round(a.reduce((p, x) => p + x, 0) / a.length) : null);
+    return { n: l.length, how: [...c].map(([h, n]) => ({ h, n, pct: Math.round((100 * n) / l.length) })).sort((a, b) => b.n - a.n), avg: avg(ps), early: ps.filter((p) => p < 60).length,
+      byOpp: [...o].map(([opp, xs]) => { const cc = new Map(); for (const x of xs) cc.set(x.how, (cc.get(x.how) || 0) + 1);
+        return { opp, n: xs.length, avg: avg(xs.filter((x) => x.pct >= 0).map((x) => x.pct)), top: [...cc].sort((a, b) => b[1] - a[1])[0][0] }; }).sort((a, b) => b.n - a.n) };
+  };
+  return { lost: side(L), took: side(T), sets: nsets };
+}
+
+/* ===================================================================== 🔭 v168 : les revues des VODs d'un adversaire (ses habitudes)
+   sreviews[clé] = { url, title, tag, name, chars, vs, vs_chars, at, marks: [{t, cat, text}] } ; srTag : le tag sans préfixe d'équipe, sans accents */
+const srTag = (n) => String(n || "").split("|").pop().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+function srFor(sreviews, name) {
+  const T = srTag(name); if (!T) return null;
+  const rs = Object.entries(sreviews || {}).filter(([, r]) => r && r.tag === T && (r.marks || []).length);
+  if (!rs.length) return null;
+  const by = new Map();
+  for (const [key, r] of rs) for (const m of r.marks) {
+    const secs = String(m.t).split(":").map(Number).reduce((a, x) => a * 60 + (x || 0), 0), c = m.cat || "";
+    if (!by.has(c)) by.set(c, []);
+    by.get(c).push({ key, url: r.url, title: r.title, vs: r.vs, at: r.at || "", t: m.t, secs, cat: c, text: m.text || "" });
+  }
+  return { vods: rs.length, n: [...by.values()].reduce((a, l) => a + l.length, 0),
+    cats: [...by].map(([c, items]) => ({ c, items: items.sort((a, b) => b.at.localeCompare(a.at) || a.secs - b.secs) })).sort((a, b) => b.items.length - a.items.length) };
+}
+/* le bloc « 🔭 Ses habitudes » : link(x) → les attributs du lien vers le moment (Hub : data-url ; téléphone : href) */
+function srHTML(sr, link) {
+  if (!sr) return "";
+  return `<div class="sr-box"><div class="vd-for-h">🔭 <b>Ses habitudes</b> <span class="muted small">tes revues de ${sr.vods} de ses VODs</span></div>
+    ${sr.cats.map((g) => `<div class="small sr-cat"><b>${g.c ? rvCatIcon(g.c) + " " + esc(rvCatName(g.c)) : "📝 Notes"}</b>${g.items.slice(0, 4).map((x) => ` · ${x.text ? "« " + esc(x.text) + " »" : ""} <a ${link(x)} title="${esc(x.title)}">${esc(x.t)} ▶</a>`).join("")}${g.items.length > 4 ? ` <span class="muted">+${g.items.length - 4}</span>` : ""}</div>`).join("")}</div>`;
 }
