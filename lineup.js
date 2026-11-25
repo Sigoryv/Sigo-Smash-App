@@ -391,7 +391,7 @@ function mdLite(t) {
 }
 const anaAll = () => C.section("analyses").map(([, v]) => v).filter(Boolean).sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
 function anaItem(a) {
-  const kind = { me: "🙋 Moi", opp: "🆚 " + (a.name || "un joueur"), mu: "🎭 " + (a.name || "matchup") }[a.kind] || "🙋 Moi";
+  const kind = { me: "🙋 Moi", opp: "🆚 " + (a.name || "un joueur"), mu: "🎭 " + (a.name || "matchup"), review: "🎬 Mes revues" }[a.kind] || "🙋 Moi";
   return `<details class="ana"><summary><span class="chip">${esc(kind)}</span> ${esc(a.q)} <span class="muted small">· ${fmtDate(a.ts)}</span></summary>
     <div class="ana-b">${a.text ? mdLite(a.text) : `<div class="muted small">${a.status === "pending" ? "L'agent travaille encore : la réponse arrivera avec la synchro." : "Pas de réponse."}</div>`}</div></details>`;
 }
