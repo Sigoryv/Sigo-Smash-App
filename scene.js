@@ -113,5 +113,5 @@ document.addEventListener("click", (e) => {
   if (a === "sc-vods") { if (BACK === null && CUR) BACK = CUR; CUR = null; return sheetVods(el.dataset.q != null ? el.dataset.q : null); }
   if (a === "sc-scope") { SC.scope = el.dataset.v; SHEET_KEEP = true; return sheetRank(); }
   if (a === "sc-kind") { SC.kind = el.dataset.v; SHEET_KEEP = true; return sheetRank(); }
-  if (a === "sc-link") { const was = C.get("vods", el.dataset.id) || { marks: [] }; C.set("vods", el.dataset.id, { url: el.dataset.url, marks: was.marks || [] }); toast("🔗 VOD reliée (synchronisée avec le Hub)."); SHEET_KEEP = true; return sheetVods(); }
+  if (a === "sc-link") { const was = C.get("vods", el.dataset.id) || { marks: [] }; C.set("vods", el.dataset.id, { ...was, url: el.dataset.url, marks: was.marks || [] }); toast("🔗 VOD reliée (synchronisée avec le Hub)."); SHEET_KEEP = true; return sheetVods(); }
 });
