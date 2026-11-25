@@ -61,10 +61,16 @@ function viewLuFiches() {
       return `<div class="row" data-mu="${esc(k)}">${s ? luArt(s) : ""}<div class="grow"><div><b>${esc(k)}</b> <span class="small">${r ? wl(r.w, r.l) : ""}</span></div><div class="muted small">${esc(String(v).replace(/\s+/g, " ").slice(0, 90))}</div></div>›</div>`; }).join("")
     || '<div class="muted small">Pas encore de fiche MU. Ouvre un perso dans 📊 Persos pour en écrire une.</div>'}</div>`;
 }
+/* 🗂 v163 : 6 boutons comme sur le Hub (Matchups et Mes persos ont une 2e rangée) */
+const LU_GROUPS = [["mine", "🎭 Line up", [["mine", "Line up"]]], ["mu", "🧮 Matchups", [["chart", "🧮 MU chart"], ["fiches", "📒 Fiches MU"]]],
+  ["persos", "📊 Mes persos", [["chars", "📊 Stats"], ["cmp", "⚖ Comparatif"]]], ["stages", "🗺 Stages", [["stages", "Stages"]]],
+  ["infos", "🔎 Infos", [["infos", "Infos"]]], ["tiers", "🏷 Tiers", [["tiers", "Tier lists"]]]];
 viewLineupAll = function () {
-  const seg = D.luSeg || "mine";
-  const head = `<div class="seg lu2-seg">${LU_SEGS.map(([k, n]) => `<button class="${seg === k ? "on" : ""}" data-lact="seg" data-k="${k}">${n}</button>`).join("")}</div>`;
-  const body = { chart: viewMuChart, tiers: viewTierLists, cmp: viewLuCompare, chars: viewLuChars, stages: viewLuStages, fiches: viewLuFiches }[seg] || viewLineupV63;
+  const seg = D.luSeg || "mine", grp = LU_GROUPS.find((g) => g[2].some(([k]) => k === seg)) || LU_GROUPS[0];
+  D.luLast ||= {}; D.luLast[grp[0]] = seg;
+  const head = `<div class="seg lu2-seg">${LU_GROUPS.map(([g, n, subs]) => `<button class="${g === grp[0] ? "on" : ""}" data-lact="seg" data-grp="${g}" data-k="${D.luLast[g] || subs[0][0]}">${n}</button>`).join("")}</div>`
+    + (grp[2].length > 1 ? `<div class="seg lu-sub">${grp[2].map(([k, n]) => `<button class="${seg === k ? "on" : ""}" data-lact="seg" data-k="${k}">${n}</button>`).join("")}</div>` : "");
+  const body = { chart: viewMuChart, tiers: viewTierLists, cmp: viewLuCompare, chars: viewLuChars, stages: viewLuStages, fiches: viewLuFiches, infos: viewInfos }[seg] || viewLineupV63;
   return head + body();
 };
 TABS.mu = viewLineupAll;
