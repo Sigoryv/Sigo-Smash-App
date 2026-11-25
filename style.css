@@ -524,3 +524,10 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 /* 🎯 v157 : la prépa */
 .prep .prep-h { margin: 10px 2px 2px; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
 .prep .prep-pct { min-width: 48px; font-weight: 800; color: var(--accent); }
+.rv-plan { border-left: 3px solid var(--red); }
+/* 📒 v159 : le carnet du matchup */
+.mu-form { display: flex; gap: 3px; margin: 4px 0; } .mu-form span { width: 12px; height: 12px; border-radius: 3px; }
+.mu-form .w { background: var(--green); } .mu-form .l { background: var(--red); }
+.mu-mk { border-left: 3px solid transparent; } .mu-mk.err { border-left-color: var(--red); } .mu-mk.ok { border-left-color: var(--green); }
+/* 🗂 v163 : la 2e rangée de Persos (Matchups, Mes persos) */
+.seg.lu-sub { margin: -4px 0 10px; font-size: .92em; }
