@@ -27,7 +27,7 @@ function uxSearch(q) {
   if (n.length < 2) return out;
   const hit = (s) => uxN(s).includes(n);
   // 🎮 Smash : les persos (surnoms compris), les joueurs rencontrés
-  for (const [slug, name] of infList(q).slice(0, 6)) out.push({ g: "🎮 Persos", ico: luArt(slug, "lu-a ux-i"), t: name, s: "move set, frame data, tes MU", go: () => { D.space = "smash"; D.tab = "infos"; save(); render(); sheetChar(slug); } });
+  for (const [slug, name] of infList(q).slice(0, 6)) out.push({ g: "🎮 Persos", ico: luArt(slug, "lu-a ux-i"), t: name, s: "move set, frame data, tes MU", go: () => { D.space = "smash"; D.tab = "mu"; D.luSeg = "infos"; save(); render(); sheetChar(slug); } });
   const opp = new Map(); for (const s of allSets()) if (s.opp && hit(s.opp) && !opp.has(s.opp_id)) opp.set(s.opp_id, s);
   for (const s of [...opp.values()].slice(0, 6)) out.push({ g: "🎮 Joueurs", t: s.opp, s: `dernier set ${fmtDate(s.ts)}`, go: () => { D.space = "smash"; D.tab = "players"; save(); render(); sheetOpp(s.opp_id); } });
   // ⚔ Warhammer : listes, collection, fiches
