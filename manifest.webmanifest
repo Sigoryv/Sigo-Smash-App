@@ -11,17 +11,17 @@
   "lang": "fr",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "icon-v2-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "icon-512.png",
+      "src": "icon-v2-512.png",
       "sizes": "512x512",
       "type": "image/png"
     },
     {
-      "src": "icon-maskable.png",
+      "src": "icon-v2-maskable.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
@@ -35,7 +35,7 @@
       "url": "./?go=wlive",
       "icons": [
         {
-          "src": "icon-192.png",
+          "src": "icon-v2-192.png",
           "sizes": "192x192"
         }
       ]
@@ -47,7 +47,7 @@
       "url": "./?go=rev",
       "icons": [
         {
-          "src": "icon-192.png",
+          "src": "icon-v2-192.png",
           "sizes": "192x192"
         }
       ]
@@ -59,7 +59,7 @@
       "url": "./?go=day",
       "icons": [
         {
-          "src": "icon-192.png",
+          "src": "icon-v2-192.png",
           "sizes": "192x192"
         }
       ]
