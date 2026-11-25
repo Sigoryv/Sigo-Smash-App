@@ -729,7 +729,7 @@ function alertMe(title, body) {
   toast("🏟 " + body);
   window.__alerts = (window.__alerts || []).concat(body);
   if ("Notification" in window && Notification.permission === "granted" && navigator.serviceWorker?.controller)
-    navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, { body, icon: "icon-192.png", badge: "icon-192.png", tag: "sigo-run", renotify: true })).catch(() => {});
+    navigator.serviceWorker.ready.then((reg) => reg.showNotification(title, { body, icon: "icon-v2-192.png", badge: "icon-v2-192.png", tag: "sigo-run", renotify: true })).catch(() => {});
 }
 /* ⏱ v57 : toutes les 20 s quand un de tes sets approche (appelé, en cours, prochain, en attente), sinon chaque minute */
 const runHot = () => liveTournaments().some((u) => u.events.some((ev) => { const r = (D.live || {})[ev.eid]; return r && !r.out && r.state !== "COMPLETED" && r.sets.some((x) => ["live", "next", "called", "wait"].includes(x.res)); }));
@@ -965,10 +965,10 @@ const TABS = { home: viewHome, tours: viewTours, players: viewPlayers, mu: viewM
 const SCROLL = {};                                         // (v69) la position de chaque onglet
 let lastTab = null;
 function render() {
-  const y = window.scrollY;
-  if (lastTab && lastTab !== D.tab) SCROLL[lastTab] = y;
-  const back = lastTab === D.tab ? y : (SCROLL[D.tab] || 0);
-  lastTab = D.tab;
+  const y = window.scrollY, key = D.tab === "mu" ? "mu:" + (D.luSeg || "mine") : D.tab;     // (🗂 v163 : chaque partie de Persos garde sa position)
+  if (lastTab && lastTab !== key) SCROLL[lastTab] = y;
+  const back = lastTab === key ? y : (SCROLL[key] || 0);
+  lastTab = key;
   renderView();
   requestAnimationFrame(() => window.scrollTo(0, back));
 }
@@ -1372,7 +1372,9 @@ async function sheetPlan(pid, name) {
   const myName = (sl) => Object.values(D.chars || {}).find((n) => planSlug(n) === sl) || sl.replace(/_/g, " ");
   if (typeof sceneLoad === "function") await sceneLoad();
   const vds = typeof scVodsFor === "function" ? scVodsFor(name, chars.map((c) => c.name), Object.entries(lu).filter(([, v]) => v && v.cat && v.cat !== "learn").map(([k]) => myName(k))) : "";
-  sheet(`<h2>🗺 Plan de match · ${esc(name)}</h2>${planHTML(p, { icon: (n) => ci(n, "xs"), myName, note: C.get("opp_notes", pid) || "" })}${vds}
+  const rvp = typeof rvForPlan === "function" ? rvForPlan(rvMarks(allSets(), (x) => C.get("games", x.id) || x.games || [], Object.fromEntries(C.section("vods"))), chars.map((c) => c.name)) : null;   // (🎬 v158)
+  const rvh = rvp ? `<div class="card rv-plan"><h3>🎬 Tes erreurs fréquentes dans ce matchup <span class="muted small">${rvp.n} · ${rvp.sets} set(s) revu(s)</span></h3>${rvp.top.map((x) => `<div class="small">${rvCatIcon(x.c)} <b>${esc(rvCatName(x.c))}</b> ×${x.n}${x.ex?.text ? ` · « ${esc(x.ex.text)} »` : ""}${x.ex?.url ? ` · <a href="${esc(x.ex.url + (x.ex.url.includes("?") ? "&" : "?") + "t=" + x.ex.secs + "s")}" target="_blank" rel="noopener">${esc(x.ex.set.opp)} ${esc(x.ex.t)} ▶</a>` : ""}</div>`).join("")}</div>` : "";
+  sheet(`<h2>🗺 Plan de match · ${esc(name)}</h2>${planHTML(p, { icon: (n) => ci(n, "xs"), myName, note: C.get("opp_notes", pid) || "" })}${rvh}${vds}
     <div class="btns">${/^\d+$/.test(String(pid)) ? `<button class="btn" data-scout="${esc(pid)}" data-name="${esc(name)}">🔭 Scouting</button>` : ""}${closeBtn()}</div>`);
 }
 async function sheetScout(pid, name, refresh) {
@@ -1448,12 +1450,66 @@ const markRow = (m = {}) => `<div class="mark"><input type="text" class="mk-t" i
 const secs = (t) => { t = String(t || "").trim(); if (/^\d+$/.test(t)) return +t; const m = t.match(/^(?:(\d+):)?(\d{1,2}):(\d{2})$/); return m ? (+m[1] || 0) * 3600 + +m[2] * 60 + +m[3] : null; };
 const fmtT = (s) => { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = String(s % 60).padStart(2, "0"); return h ? `${h}:${String(m).padStart(2, "0")}:${x}` : `${m}:${x}`; };
 function vodAt(url, s) { if (!s) return url; const base = url.replace(/[?&]t=[^&]*/, ""), j = base.includes("?") ? "&" : "?"; return /twitch\.tv/.test(url) ? `${base}${j}t=${Math.floor(s / 3600)}h${Math.floor(s % 3600 / 60)}m${s % 60}s` : `${base}${j}t=${s}s`; }
-function sheetMu(k) {
+async function sheetMu(k) {
+  const me = () => sheetMu(k); if (CUR && CUR !== me && CUR.k !== k) BACK = CUR; CUR = me; me.k = k;
   const r = stats(allSets()).opC.find((x) => x.k === k);
+  if (typeof sceneLoad === "function") await sceneLoad().catch(() => {});
   sheet(`<h2>📒 ${esc(k)}</h2><div class="muted small">${r ? `games ${r.w}-${r.l}` : "pas de game renseigné"}</div>
     <textarea id="mu-text" style="min-height:220px;margin-top:10px" placeholder="Ses options dangereuses, comment le punir, tes stages…">${esc(C.get("matchups", k) || "")}</textarea>
+    ${muBookPhone(k)}
     ${stageBlock(k)}
     <div class="btns"><button class="btn" data-act="close">Fermer</button><button class="btn accent" data-act="save-mu" data-k="${esc(k)}">Enregistrer</button></div>`);
+}
+/* 🏆 v161 : comment les meilleurs le jouent (tes persos contre lui, d'après les VODs reçues du Hub ; le round pèse) */
+function muRoundW(r) {
+  r = String(r || "").toLowerCase();
+  if (!r) return 1; if (/grand|\bgf\b/.test(r)) return 6; if (/(winners?|losers?) ?finals?|\b[wl]f\b/.test(r)) return 5; if (/semi|\b[wl]?sf\b/.test(r)) return 4;
+  if (/quarter|\b[wl]?qf\b|top ?8\b/.test(r)) return 3; if (/top ?(12|16|24|32|48|64)\b/.test(r)) return 2; if (/\bfinals?\b/.test(r)) return 5; if (/pool/.test(r)) return 1; return 1.5;
+}
+function muMastersPhone(k, M) {
+  const K = scSlug(k), me = scSlug(String(D.player?.tag || "")), has = (l, S) => (l || []).some((x) => S.includes(scSlug(x)) || S.includes(scSlug(scCharName(x))));
+  const tagOf = (n) => scSlug(String(n || "").split("|").pop());
+  const out = [];
+  for (const m of M) {
+    const P = new Map();
+    for (const v of scVods()) {
+      if (!v.p1) continue;
+      for (const [pl, pc, oc, op] of [[v.p1, v.c1, v.c2, v.p2], [v.p2, v.c2, v.c1, v.p1]]) {
+        if (!has(pc, [m]) || !has(oc, [K]) || (me && tagOf(pl) === me)) continue;
+        const t = tagOf(pl), e = P.get(t) || { name: pl, vs: [] }; e.vs.push({ ...v, w: muRoundW(v.round), op, pc, oc }); P.set(t, e);
+      }
+    }
+    const L = [...P.values()].map((e) => { const vs = e.vs.sort((a, b) => b.w - a.w || b.at.localeCompare(a.at)); return { ...e, vs, s: vs.slice(0, 5).reduce((a, x) => a + x.w, 0) }; })
+      .sort((a, b) => b.s - a.s).slice(0, 4);
+    if (L.length) out.push(`<h4 class="muted small" style="margin:8px 0 2px">Ton ${esc((typeof LU_ROSTER !== "undefined" && LU_ROSTER.find(([sl]) => scSlug(sl) === m)?.[1]) || scCharName(m))} contre ${esc(k)}</h4>${L.map((e) => `<a class="row" href="${esc(e.vs[0].url)}" target="_blank" rel="noopener">▶<div class="grow small"><b>${esc(e.name)}</b> ${scChars(e.vs[0].pc)} vs ${esc(e.vs[0].op)} ${scChars(e.vs[0].oc)}
+      <div class="muted">${e.vs.length} VOD(s)${e.vs[0].round ? " · " + esc(e.vs[0].round) : ""} · ${esc(e.vs[0].event || e.vs[0].ch)}</div></div></a>`).join("")}`);
+  }
+  return out.length ? `<div class="card mu-best"><h3>🏆 Comment les meilleurs le jouent</h3>${out.join("")}</div>` : "";
+}
+/* 📒 v159 : le carnet du matchup (le calcul est partagé avec le Hub : plan.js, muBook) */
+function muBookPhone(k) {
+  const vods = Object.fromEntries(C.section("vods")), b = muBook({ k, sets: allSets(), games, vods, charName });
+  const pc = (w, l) => (w + l ? Math.round((100 * w) / (w + l)) : 0), yt = (u, t) => u + (u.includes("?") ? "&" : "?") + "t=" + t + "s";
+  let h = "";
+  if (b.w + b.l) h += `<div class="card mu-bk"><h3>📈 Ton bilan <span class="muted small">${pc(b.w, b.l)} % · ${b.sets} set(s)</span></h3>
+    <div class="mu-form">${b.form.map((w) => `<span class="${w ? "w" : "l"}"></span>`).join("")}</div>
+    ${b.trend ? `<div class="small">${b.trend.r >= b.trend.o ? "📈" : "📉"} <b>${b.trend.r} %</b> ces 6 mois, contre ${b.trend.o} % avant</div>` : ""}
+    ${b.byMe.map((x) => `<div class="row small">${ci(x.k, "xs")}<div class="grow">${esc(x.k)}</div>${wl(x.w, x.l)}</div>`).join("")}
+    ${b.byStage.length ? `<div class="small" style="margin-top:6px">${b.byStage.map((x) => `<span class="chip ${pc(x.w, x.l) >= 60 ? "good-t" : pc(x.w, x.l) <= 40 ? "warn-t" : ""}">${esc(x.k)} ${x.w}-${x.l}</span>`).join(" ")}</div>` : ""}</div>`;
+  if (b.players.length) h += `<div class="card"><h3>👥 Ils te l'ont joué</h3>${b.players.slice(0, 10).map((p) => `<div class="row" data-opp="${esc(p.id)}">${av(p.id, p.name, "sm")}<div class="grow"><b>${esc(p.name)}</b><div class="muted small">${fmtDate(p.last)}</div></div>${wl(p.w, p.l)}</div>`).join("")}</div>`;
+  if (b.review || b.marks.length || b.vodSets.length) h += `<div class="card"><h3>🎬 Tes revues</h3>
+    ${b.review ? b.review.top.map((x) => `<div class="small">${rvCatIcon(x.c)} <b>${esc(rvCatName(x.c))}</b> ×${x.n}</div>`).join("") : ""}${b.good ? `<div class="small">✅ ${b.good} bon(s) moment(s)</div>` : ""}
+    ${b.marks.slice(0, 5).map((m) => `<a class="row small mu-mk ${m.kind}" href="${esc(yt(m.url, m.secs))}" target="_blank" rel="noopener">${rvKindIcon(m.kind)}${rvCatIcon(m.cat)}<div class="grow">${esc(m.set.opp)} ${esc(m.t)}${m.text ? ` · ${esc(m.text)}` : ""}</div>▶</a>`).join("")}
+    ${b.vodSets.filter((x) => !x.n).slice(0, 4).map((x) => `<a class="row small" href="${esc(x.url)}" target="_blank" rel="noopener">🎬<div class="grow">${esc(x.set.opp)} · ${fmtDate(x.set.ts)} <span class="muted">à revoir (sur le Hub)</span></div>▶</a>`).join("")}</div>`;
+  if (typeof scVods === "function") {
+    const K = scSlug(k), M = C.section("lineup").filter(([, v]) => v && v.cat && v.cat !== "learn").map(([s]) => scSlug(s));
+    const has = (l, S) => (l || []).some((x) => S.includes(scSlug(x)) || S.includes(scSlug(scCharName(x))));
+    const vs = scVods().filter((v) => v.p1 && ((has(v.c1, [K]) && (!M.length || has(v.c2, M))) || (has(v.c2, [K]) && (!M.length || has(v.c1, M)))));
+    const best = muMastersPhone(k, M);
+    if (best) h += best;
+    if (vs.length) h += `<div class="card"><h3>📺 VODs du matchup <span class="muted small">${vs.length}</span></h3>${vs.slice(0, 5).map((v) => `<a class="row" href="${esc(v.url)}" target="_blank" rel="noopener">▶<div class="grow small">${esc(v.p1)} ${scChars(v.c1)} vs ${esc(v.p2)} ${scChars(v.c2)}<div class="muted">${esc(v.event || v.ch)} · ${esc(v.at.split("-").reverse().join("/"))}</div></div></a>`).join("")}</div>`;
+  }
+  return h;
 }
 function sheetNewSet() {
   sheet(`<h2>＋ Un set hors start.gg</h2><label>Adversaire</label><input type="text" id="ns-opp">
@@ -1482,7 +1538,7 @@ function bindView() {
   const fq = $("#find-q"); if (fq) fq.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); findGo(); } };
   const q = $("#pq"); if (q) q.oninput = () => { pq = q.value; clearTimeout(q.t); q.t = setTimeout(() => { render(); const n = $("#pq"); n.focus(); n.setSelectionRange(pq.length, pq.length); }, 200); }; }
 document.addEventListener("click", async (e) => {
-  const tab = e.target.closest("#tabs [data-tab]"); if (tab) { if (tab.dataset.tab === D.tab) { SCROLL[D.tab] = 0; window.scrollTo({ top: 0, behavior: "smooth" }); return; } D.tab = tab.dataset.tab; save(); render(); return; }
+  const tab = e.target.closest("#tabs [data-tab]"); if (tab) { if (tab.dataset.tab === D.tab) { SCROLL[lastTab] = 0; window.scrollTo({ top: 0, behavior: "smooth" }); return; } D.tab = tab.dataset.tab; save(); render(); return; }
   if (e.target.closest("#gear")) return sheetSettings();
   if (e.target.closest("#sync")) return syncAll();
   if (e.target.id === "sheet-back") return closeSheet();
