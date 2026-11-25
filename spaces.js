@@ -16,7 +16,7 @@ const M_ICO = { smash: "trophy", wh: "shield", ch: "crown", home: "home", tours:
   wlists: "list", wlive: "swords", wsheets: "file", wcoll: "box", chome: "pawn", chlearn: "book", chgames: "pawn", chstats: "chart", chopp: "swords" };
 const mIco = (id, em, size = 22) => (typeof ico === "function" && M_ICO[id] ? ico(M_ICO[id], size) : em);
 const SPACE_TABS = {
-  smash: [["home", "🏠", "Accueil"], ["tours", "🏆", "Tournois"], ["players", "🆚", "Joueurs"], ["mu", "🎭", "Line Up"], ["carnet", "📓", "Carnet"], ["infos", "🔎", "Infos"]],
+  smash: [["home", "🏠", "Accueil"], ["tours", "🏆", "Tournois"], ["players", "🆚", "Joueurs"], ["mu", "🎭", "Persos"], ["carnet", "📓", "Carnet"]],      // (🗂 v163 : 🔎 Infos est dans Persos)
   wh: [["wlists", "📋", "Listes"], ["wlive", "🎲", "Partie"], ["wsheets", "📖", "Fiches"], ["wcoll", "📦", "Collection"]],
   ch: [["chome", "♟", "Échecs"]],
 };
