@@ -14,7 +14,7 @@ const luN = (slug) => luR(slug)?.[1] || slug;
 function luSlug(name) { const s = String(name || "").trim().toLowerCase(); if (luR(s)) return s; const n = luNorm(name); return LU_BY.get(n) || LU_ALIASES[n] || ""; }
 function luArt(slug, cls = "lu-a") {
   const r = luR(slug); if (!r) return "";
-  return `<span class="${cls}" title="${esc(r[1])}"><img src="${UFD_ART}${r[2]}.webp" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()"><i>${esc(ini(r[1]))}</i></span>`;
+  return `<span class="${cls}" title="${esc(r[1])}"><img src="${UFD_ART}${r[2]}.webp" alt="" loading="lazy" referrerpolicy="no-referrer" data-rm-err><i>${esc(ini(r[1]))}</i></span>`;
 }
 function luMine() {
   const ci = { main: 0, second: 1, pocket: 2, learn: 3 };
@@ -156,7 +156,7 @@ async function sheetChar(slug, seg) {
     else {
       const mv = F.m.filter((m) => LUC.cat === "all" || m[0] === LUC.cat);
       body = `<div class="chips">${[["all", "Tout"], ...LU_MCATS].map(([k, n]) => `<button class="chip-b ${LUC.cat === k ? "on" : ""}" data-lact="mcat" data-k="${k}">${n}</button>`).join("")}</div>
-        ${mv.map((m) => `<div class="mv">${m[10]?.[0] ? `<img class="mv-gif" src="${UFD}${esc(m[10][0])}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}
+        ${mv.map((m) => `<div class="mv">${m[10]?.[0] ? `<img class="mv-gif" src="${UFD}${esc(m[10][0])}" alt="" loading="lazy" referrerpolicy="no-referrer" data-rm-err>` : ""}
           <div class="mv-b"><b>${esc(m[1])}</b><div class="mv-s"><span><i>Startup</i>${esc(m[2] || "–")}</span><span><i>Actif</i>${esc(m[3] || "–")}</span><span><i>Total</i>${esc(m[4] || "–")}</span>
           <span><i>Bouclier</i><b class="${parseInt(m[8], 10) >= -4 ? "w" : parseInt(m[8], 10) <= -15 ? "l" : ""}">${esc(m[8] || "–")}</b></span><span><i>Dégâts</i>${esc(m[7] || "–")}</span><span><i>${m[6] ? "Atterr." : "Endlag"}</i>${esc(m[6] || m[5] || "–")}</span></div>
           ${m[9] ? `<div class="small muted">${esc(m[9])}</div>` : ""}${C.get("move_notes", `${slug}|${m[1]}`) ? `<div class="small">📝 ${esc(C.get("move_notes", `${slug}|${m[1]}`))}</div>` : ""}</div></div>`).join("")}
@@ -249,7 +249,7 @@ function viewLineupAll() {
 TABS.mu = viewLineupAll;
 
 document.addEventListener("click", (e) => {
-  if (e.target.closest("#find-char")) { D.tab = "infos"; save(); render(); window.scrollTo(0, 0); setTimeout(() => $("#inf-q")?.focus(), 50); return; }
+  if (e.target.closest("#find-char")) { D.space = "smash"; D.tab = "mu"; D.luSeg = "infos"; save(); render(); window.scrollTo(0, 0); setTimeout(() => $("#inf-q")?.focus(), 50); return; }
   const el = e.target.closest("[data-lact]"); if (!el) return;
   const a = el.dataset.lact;
   if (["seg", "mc", "rate", "open-char", "cseg", "mcat", "form", "tl", "tl-new", "tl-edit", "tl-c", "tl-row", "tl-ren", "tl-up", "tl-rm", "tl-add", "tl-apply", "tl-del"].includes(a)) { e.preventDefault(); e.stopPropagation(); }
@@ -314,9 +314,13 @@ function infTiles(list) {
   const P = LUF.pages || {};
   return list.map(([s, nm]) => `<button class="lu-tile" data-lact="open-char" data-slug="${s}">${luArt(s, "lu-a tile")}<b>${esc(nm)}</b>${luPages(s).every((p) => P[p]) ? '<span class="fd" title="Frame data sur ce téléphone">🥊</span>' : ""}</button>`).join("") || '<div class="empty">Aucun perso.</div>';
 }
+/* (v163) une image qui ne charge pas disparaît : pas de « onerror » dans le HTML (la sécurité de l'appli l'interdit) */
+document.addEventListener("error", (e) => { if (e.target?.tagName === "IMG" && e.target.hasAttribute("data-rm-err")) e.target.remove(); }, true);
+const luInfos = () => D.tab === "infos" || (D.tab === "mu" && D.luSeg === "infos");     // (🗂 v163 : 🔎 Infos est un bouton de Persos)
+if (D.tab === "infos") { D.tab = "mu"; D.luSeg = "infos"; }
 function viewInfos() {
   const rec = infRecent().map(luR).filter(Boolean), have = Object.keys(LUF.pages || {}).length;
-  if (!LUF.pages) luFramesLoad().then(() => { if (D.tab === "infos") { const g = $("#inf-grid"); if (g) g.innerHTML = infTiles(infList(INFQ.q)); const c = $("#inf-n"); if (c) c.textContent = Object.keys(LUF.pages).length; } });
+  if (!LUF.pages) luFramesLoad().then(() => { if (luInfos()) { const g = $("#inf-grid"); if (g) g.innerHTML = infTiles(infList(INFQ.q)); const c = $("#inf-n"); if (c) c.textContent = Object.keys(LUF.pages).length; } });
   return `<div class="inf-q"><input type="search" id="inf-q" placeholder="Un perso, un surnom (zss, ddd, kkr…)" value="${esc(INFQ.q)}" autocomplete="off"></div>
     ${rec.length ? `<div id="inf-rec" ${INFQ.q ? "hidden" : ""}><h3>🕘 Récemment</h3><div class="lu-strip" style="margin-bottom:10px">${infTiles(rec)}</div></div>` : ""}
     <div class="muted small" style="margin:0 2px 6px">🥊 frame data sur ce téléphone : <b id="inf-n">${have}</b> page(s)${have < 89 ? " · le Hub lit les autres en fond : ⟳ plus tard pour les recevoir" : ""}
@@ -330,7 +334,7 @@ document.addEventListener("input", (e) => {
   INFQ.q = e.target.value; const r = $("#inf-rec"); if (r) r.hidden = !!INFQ.q; const g = $("#inf-grid"); if (g) g.innerHTML = infTiles(infList(INFQ.q));
 });
 document.addEventListener("keydown", (e) => { if (e.target.id === "inf-q" && e.key === "Enter") { const b = $("#inf-grid [data-slug]"); if (b) { e.target.blur(); b.click(); } } });
-if (D.tab === "mu" || D.tab === "infos") render();
+if (D.tab === "mu") render();
 
 /* ============================================================ v68 : 🧮 glisser-déposer dans la MU chart (appui long), « pas encore notés » reste ouvert */
 document.addEventListener("toggle", (e) => { if (e.target.classList?.contains("mc-na")) { D.luMcOpen = e.target.open; save(); } }, true);
