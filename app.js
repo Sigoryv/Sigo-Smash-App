@@ -1374,7 +1374,7 @@ async function sheetPlan(pid, name) {
   const vds = typeof scVodsFor === "function" ? scVodsFor(name, chars.map((c) => c.name), Object.entries(lu).filter(([, v]) => v && v.cat && v.cat !== "learn").map(([k]) => myName(k))) : "";
   const rvp = typeof rvForPlan === "function" ? rvForPlan(rvMarks(allSets(), (x) => C.get("games", x.id) || x.games || [], Object.fromEntries(C.section("vods"))), chars.map((c) => c.name)) : null;   // (🎬 v158)
   const rvh = rvp ? `<div class="card rv-plan"><h3>🎬 Tes erreurs fréquentes dans ce matchup <span class="muted small">${rvp.n} · ${rvp.sets} set(s) revu(s)</span></h3>${rvp.top.map((x) => `<div class="small">${rvCatIcon(x.c)} <b>${esc(rvCatName(x.c))}</b> ×${x.n}${x.ex?.text ? ` · « ${esc(x.ex.text)} »` : ""}${x.ex?.url ? ` · <a href="${esc(x.ex.url + (x.ex.url.includes("?") ? "&" : "?") + "t=" + x.ex.secs + "s")}" target="_blank" rel="noopener">${esc(x.ex.set.opp)} ${esc(x.ex.t)} ▶</a>` : ""}</div>`).join("")}</div>` : "";
-  sheet(`<h2>🗺 Plan de match · ${esc(name)}</h2>${planHTML(p, { icon: (n) => ci(n, "xs"), myName, note: C.get("opp_notes", pid) || "" })}${rvh}${vds}
+  sheet(`<h2>🗺 Plan de match · ${esc(name)}</h2>${planHTML(p, { icon: (n) => ci(n, "xs"), myName, note: C.get("opp_notes", pid) || "" })}${srPhone(name)}${rvh}${vds}
     <div class="btns">${/^\d+$/.test(String(pid)) ? `<button class="btn" data-scout="${esc(pid)}" data-name="${esc(name)}">🔭 Scouting</button>` : ""}${closeBtn()}</div>`);
 }
 async function sheetScout(pid, name, refresh) {
@@ -1401,7 +1401,7 @@ function oppBlock(pid, name, o) {
 function sheetOpp(pid) {
   const o = stats(allSets()).opps.find((x) => x.id === pid); if (!o) return;
   sheet(`<h2>🆚 ${esc(o.name)} <span class="small">${wl(o.w, o.l)}</span></h2><div class="muted small">games ${o.gw}-${o.gl}</div>
-    ${oppBlock(pid, o.name, o)}<div class="btns">${BACK ? closeBtn() : ""}${/^\d+$/.test(pid) ? `<button class="btn" data-scout="${esc(pid)}" data-name="${esc(o.name)}">🔭 Scouter</button>` : ""}<button class="btn accent" data-act="save-opp" data-pid="${esc(pid)}">Enregistrer</button></div>`);
+    ${srPhone(o.name)}${oppBlock(pid, o.name, o)}<div class="btns">${BACK ? closeBtn() : ""}${/^\d+$/.test(pid) ? `<button class="btn" data-scout="${esc(pid)}" data-name="${esc(o.name)}">🔭 Scouter</button>` : ""}<button class="btn accent" data-act="save-opp" data-pid="${esc(pid)}">Enregistrer</button></div>`);
 }
 /* 🎭 v147 : compléter les persos des sets, un par un : ton perso, puis le sien → enregistré, le suivant */
 function sheetFill(skip = []) {
@@ -1460,6 +1460,11 @@ async function sheetMu(k) {
     ${stageBlock(k)}
     <div class="btns"><button class="btn" data-act="close">Fermer</button><button class="btn accent" data-act="save-mu" data-k="${esc(k)}">Enregistrer</button></div>`);
 }
+/* 🔭 v168 : ses habitudes (tes revues de ses VODs, faites sur le Hub) */
+function srPhone(name) {
+  const h = typeof srFor === "function" ? srHTML(srFor(Object.fromEntries(C.section("sreviews")), name), (x) => `href="${esc(x.url + (x.url.includes("?") ? "&" : "?") + "t=" + x.secs + "s")}" target="_blank" rel="noopener"`) : "";
+  return h ? `<div class="card">${h}</div>` : "";
+}
 /* 🏆 v161 : comment les meilleurs le jouent (tes persos contre lui, d'après les VODs reçues du Hub ; le round pèse) */
 function muRoundW(r) {
   r = String(r || "").toLowerCase();
@@ -1497,7 +1502,7 @@ function muBookPhone(k) {
     ${b.byMe.map((x) => `<div class="row small">${ci(x.k, "xs")}<div class="grow">${esc(x.k)}</div>${wl(x.w, x.l)}</div>`).join("")}
     ${b.byStage.length ? `<div class="small" style="margin-top:6px">${b.byStage.map((x) => `<span class="chip ${pc(x.w, x.l) >= 60 ? "good-t" : pc(x.w, x.l) <= 40 ? "warn-t" : ""}">${esc(x.k)} ${x.w}-${x.l}</span>`).join(" ")}</div>` : ""}</div>`;
   if (b.players.length) h += `<div class="card"><h3>👥 Ils te l'ont joué</h3>${b.players.slice(0, 10).map((p) => `<div class="row" data-opp="${esc(p.id)}">${av(p.id, p.name, "sm")}<div class="grow"><b>${esc(p.name)}</b><div class="muted small">${fmtDate(p.last)}</div></div>${wl(p.w, p.l)}</div>`).join("")}</div>`;
-  if (b.review || b.marks.length || b.vodSets.length) h += `<div class="card"><h3>🎬 Tes revues</h3>
+  if (b.review || b.nx || b.stk || b.marks.length || b.vodSets.length) h += `<div class="card"><h3>🎬 Tes revues</h3>${b.stk ? `<div class="small">💀 Tes stocks partent surtout par <b>${esc(stkName(b.stk.top).toLowerCase())}</b>${b.stk.avg != null ? `, à ${b.stk.avg} % en moyenne` : ""}</div>` : ""}${b.nx ? `<div class="small">⚔ Ton neutral contre lui : <b>${b.nx.pct} %</b> <span class="muted">(${b.nx.w}/${b.nx.n})</span></div>` : ""}
     ${b.review ? b.review.top.map((x) => `<div class="small">${rvCatIcon(x.c)} <b>${esc(rvCatName(x.c))}</b> ×${x.n}</div>`).join("") : ""}${b.good ? `<div class="small">✅ ${b.good} bon(s) moment(s)</div>` : ""}
     ${b.marks.slice(0, 5).map((m) => `<a class="row small mu-mk ${m.kind}" href="${esc(yt(m.url, m.secs))}" target="_blank" rel="noopener">${rvKindIcon(m.kind)}${rvCatIcon(m.cat)}<div class="grow">${esc(m.set.opp)} ${esc(m.t)}${m.text ? ` · ${esc(m.text)}` : ""}</div>▶</a>`).join("")}
     ${b.vodSets.filter((x) => !x.n).slice(0, 4).map((x) => `<a class="row small" href="${esc(x.url)}" target="_blank" rel="noopener">🎬<div class="grow">${esc(x.set.opp)} · ${fmtDate(x.set.ts)} <span class="muted">à revoir (sur le Hub)</span></div>▶</a>`).join("")}</div>`;
@@ -1598,7 +1603,8 @@ document.addEventListener("click", async (e) => {
     if (url && !/^https?:\/\//.test(url)) return toast("Le lien de la VOD doit commencer par https://", true);
     const marks = $$("#marks .mark").map((m) => ({ t: m.querySelector(".mk-t").value.trim(), text: m.querySelector(".mk-x").value.trim().slice(0, 200) }))
       .filter((m) => m.text && secs(m.t) != null).map((m) => ({ t: fmtT(secs(m.t)), text: m.text })).sort((a, b) => secs(a.t) - secs(b.t));
-    C.set("vods", id, url || marks.length ? { url, marks } : null);
+    const was = C.get("vods", id) || {}, keep = Object.fromEntries(["nx", "stk"].filter((k) => was[k]?.length).map((k) => [k, was[k]]));   // (⚔ v164 : la revue faite sur le Hub est gardée)
+    C.set("vods", id, url || marks.length || Object.keys(keep).length ? { ...keep, url, marks } : null);
     toast("📓 Enregistré."); return closeSheet();
   }
   if (act === "set-del") { if (confirm("Supprimer ce set ajouté à la main ?")) { const id = el.dataset.id; C.set("manual", id, null); C.set("notes", id, null); C.set("vods", id, null); closeSheet(); } return; }
