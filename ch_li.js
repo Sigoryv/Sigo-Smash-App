@@ -148,7 +148,51 @@ async function liPgn() {
 const liClock = (c) => c == null ? "" : (() => { const s = Math.max(0, Math.round(c / 100)); return `${Math.floor(s / 3600) ? Math.floor(s / 3600) + ":" : ""}${String(Math.floor(s / 60) % 60).padStart(Math.floor(s / 3600) ? 2 : 1, "0")}:${String(s % 60).padStart(2, "0")}`; })();
 const liP = (p) => p ? `${p.title ? `<span class="li-title">${esc(p.title)}</span> ` : ""}${esc(p.name)}${p.rating ? ` <span class="muted small">${p.rating}</span>` : ""}` : "?";
 const liRes = (s) => s === "1-0" ? "1–0" : s === "0-1" ? "0–1" : s === "½-½" || s === "1/2-1/2" ? "½–½" : "en cours";
+/* ------------------------------------------------------------ 📺 v185 : Lichess TV (le flux en direct, lu directement) */
+const TVC = [["best", "Meilleurs"], ["bullet", "Bullet"], ["blitz", "Blitz"], ["rapid", "Rapide"], ["classical", "Classique"]];
+const TV = { on: false, ch: "best", g: null, fen: "", lm: "", wc: null, bc: null, at: 0, sans: [], ctl: null, err: "" };
+function tvStop() { try { TV.ctl?.abort(); } catch (_) {} TV.ctl = null; }
+async function tvStart() {
+  tvStop(); const ctl = TV.ctl = new AbortController(); Object.assign(TV, { g: null, fen: "", lm: "", sans: [], err: "" }); render();
+  try {
+    const r = await fetch(`${LI()}/api/tv/${TV.ch === "best" ? "" : TV.ch + "/"}feed`, { headers: { Accept: "application/x-ndjson" }, signal: ctl.signal });
+    if (!r.ok) throw new Error("Lichess a répondu " + r.status);
+    const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { value, done } = await rd.read(); if (done) break;
+      buf += dec.decode(value, { stream: true }); let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (!line) continue;
+        let m; try { m = JSON.parse(line); } catch (_) { continue; }
+        const d = m.d || {};
+        if (m.t === "featured") { const ps = (d.players || []).map((p) => ({ color: p.color, name: p.user?.name || "?", title: p.user?.title || "", rating: p.rating || 0, s: p.seconds }));
+          Object.assign(TV, { g: { id: d.id, ps, orient: d.orientation }, fen: d.fen, lm: "", sans: [], wc: ps.find((p) => p.color === "white")?.s, bc: ps.find((p) => p.color === "black")?.s, at: Date.now() }); }
+        else if (m.t === "fen") { if (TV.fen && d.lm) { try { const mv = new Chess(TV.fen).move({ from: d.lm.slice(0, 2), to: d.lm.slice(2, 4), promotion: d.lm[4] || "q" }); TV.sans = [...TV.sans, mv.san].slice(-10); } catch (_) {} }
+          Object.assign(TV, { fen: d.fen, lm: d.lm || "", wc: d.wc, bc: d.bc, at: Date.now() }); }
+        if (!TV.on || D.space !== "ch" || D.tab !== "chlive") return tvStop();          // (on n'écoute que si tu regardes)
+        render();
+      }
+    }
+  } catch (e) { if (e.name !== "AbortError") { TV.err = String(e.message || e); render(); } }
+}
+const tvLeft = (c) => { const v = c === "w" ? TV.wc : TV.bc; if (v == null) return null; return (TV.fen.split(" ")[1] || "w") === c && TV.lm ? Math.max(0, v - (Date.now() - TV.at) / 1000) : v; };
+const tvClk = (v) => v == null ? "" : `${Math.floor(v / 60)}:${String(Math.floor(v % 60)).padStart(2, "0")}`;
+function viewTv() {
+  if (!TV.ctl && !document.hidden) setTimeout(tvStart, 0);                          // (revenu sur l'onglet : on se reconnecte)
+  const chips = `<div class="li-rounds">${TVC.map(([k, n]) => `<button class="chip-b ${TV.ch === k ? "on" : ""}" data-litv="${k}">${n}</button>`).join("")}</div>`;
+  if (!TV.g) return `<button class="btn wback" data-liact="tv-off">← Direct</button><h2>📺 Lichess TV</h2>${chips}${TV.err ? `<div class="card err">⚠ ${esc(TV.err)}</div><button class="btn" data-liact="tv-retry">⟳</button>` : '<div class="muted small">⟳ connexion au direct…</div>'}`;
+  const flip = TV.g.orient === "black", P = (c) => TV.g.ps.find((p) => p.color === c) || { name: "?" }, top = flip ? "white" : "black", bot = flip ? "black" : "white";
+  const pl = (c) => `<div class="li-pl">${c === "white" ? "⚪" : "⚫"} ${liP(P(c))} <span class="li-ck" data-tvck="${c[0]}">${tvClk(tvLeft(c[0]))}</span></div>`;
+  return `<button class="btn wback" data-liact="tv-off">← Direct</button><h2>📺 Lichess TV <span class="chip live">● direct</span></h2>${chips}
+    ${pl(top)}${chBoard(TV.fen, { flip, last: TV.lm ? { from: TV.lm.slice(0, 2), to: TV.lm.slice(2, 4) } : null, id: "litv-b" })}${pl(bot)}
+    <div class="muted small" style="text-align:center">${TV.sans.length ? esc(TV.sans.join(" ")) : "les coups arrivent en direct"}</div>
+    <a class="btn" style="display:block;text-align:center;margin-top:8px" href="https://lichess.org/${esc(TV.g.id)}" target="_blank" rel="noopener">Ouvrir sur Lichess ↗</a>`;
+}
+setInterval(() => { if (!TV.on || !TV.g) return; for (const c of ["w", "b"]) { const el = document.querySelector(`[data-tvck="${c}"]`); if (el) el.textContent = tvClk(tvLeft(c)); } }, 500);
+document.addEventListener("visibilitychange", () => { if (document.hidden) tvStop(); else if (TV.on && D.tab === "chlive") tvStart(); });
+
 function viewChLive() {
+  if (TV.on && D.tab === "chlive") return viewTv();
   if (CHL.gid && CHL.round) return viewChLiveGame();
   if (CHL.tour) {
     const T = CHL.tour, R = CHL.round;
@@ -163,6 +207,7 @@ function viewChLive() {
   if (!CHL.top && !CHL.topErr) { liTop(); return `<h2>📡 En direct</h2><div class="muted small">⟳ Lichess…</div>`; }
   if (!CHL.top) return `<h2>📡 En direct</h2><div class="card err">⚠ ${esc(CHL.topErr)}</div><button class="btn" data-liact="top-reload">⟳ Réessayer</button>`;
   return `<div class="lu-h"><h2>📡 En direct</h2><button class="btn" data-liact="top-reload" title="Actualiser">⟳</button></div>
+    <button class="card li-tvcard" data-liact="tv-on"><b>📺 Lichess TV</b><div class="muted small">La partie de haut niveau du moment, en direct, coup par coup.</div></button>
     <p class="muted small">Les grands tournois retransmis sur Lichess en ce moment, partie par partie.</p>
     ${CHL.top.length ? CHL.top.map((t) => `<button class="card li-tour" data-litour="${esc(t.id)}"><div><b>${esc(t.name)}</b></div>
       ${t.round ? `<div class="muted small">${t.round.ongoing ? "🔴 " : "⏳ "}${esc(t.round.name)}${!t.round.ongoing && t.round.startsAt ? " · " + esc(new Date(t.round.startsAt).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })) : ""}</div>` : ""}
@@ -200,6 +245,7 @@ document.addEventListener("click", async (e) => {
   const pl = t.closest("[data-chply^='live:']"); if (pl) { e.stopImmediatePropagation(); const n = +pl.dataset.chply.split(":")[1], mv = CHL.pgn?.[CHL.gid] || []; CHL.ply = n >= mv.length ? null : n; return render(); }
   const tr = t.closest("[data-litour]"); if (tr) { CHL.tour = { id: tr.dataset.litour, name: "…", rounds: [] }; CHL.round = null; render(); window.scrollTo(0, 0); return liTour(tr.dataset.litour); }
   const rd = t.closest("[data-liround]"); if (rd) { CHL.round = null; render(); await liRound(rd.dataset.liround); return render(); }
+  const tc = t.closest("[data-litv]"); if (tc) { TV.ch = tc.dataset.litv; return tvStart(); }
   const gm = t.closest("[data-ligame]"); if (gm) { CHL.gid = gm.dataset.ligame; CHL.ply = null; CHL.flip = false; window.scrollTo(0, 0); return render(); }
   const el = t.closest("[data-liact]"); if (!el) return;
   const a = el.dataset.liact;
@@ -208,6 +254,9 @@ document.addEventListener("click", async (e) => {
   if (a === "pz-reload") { CHL.pz = null; CHL.pzErr = ""; return liPuzzleLoad(true); }
   if (a === "pz-hint") { const P = CHL.pz; P.hint = P.sol[P.i]?.slice(0, 2); P.sel = null; return render(); }
   if (a === "pz-show") { const P = CHL.pz; P.err = Math.max(P.err, 1); P.i = P.sol.length; P.done = true; liPzSave(); return render(); }
+  if (a === "tv-on") { TV.on = true; window.scrollTo(0, 0); return tvStart(); }
+  if (a === "tv-off") { TV.on = false; tvStop(); return render(); }
+  if (a === "tv-retry") return tvStart();
   if (a === "top-reload") { CHL.top = null; CHL.topErr = ""; render(); return liTop(true); }
   if (a === "tour-back") { CHL.tour = null; CHL.round = null; return render(); }
   if (a === "round-reload") { await liRound(CHL.round.id); return render(); }
