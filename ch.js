@@ -8,7 +8,7 @@
    ===================================================================== */
 
 var S = { settings: { ch_theme: localStorage.getItem("sigo.ch.theme") || "green" } };       // (pour chess_gfx.js : le thème de l'échiquier)
-SPACE_TABS.ch = [["chlearn", "📚", "Apprendre"], ["chgames", "♟", "Parties"], ["chstats", "📊", "Stats"], ["chopp", "🆚", "Adversaires"]];
+SPACE_TABS.ch = [["chlearn", "📚", "Apprendre"], ["chgames", "♟", "Parties"], ["chstats", "📊", "Stats"], ["chopp", "🆚", "Adversaires"], ["chlive", "📡", "Direct"]];      // (📡 v181 : ch_li.js)
 delete TABS.chome;
 const CCOM = () => localStorage.getItem("sigo.dev.cc") || "https://api.chess.com/pub";
 const CH_DRAWS = new Set(["agreed", "repetition", "stalemate", "insufficient", "50move", "timevsinsufficient"]);
