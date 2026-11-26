@@ -35,6 +35,7 @@ function viewDAlm() {
   if (!DOF.alm && !DOF.almErr) { if (!DOF.busy) dAlmLoad().then(() => D.tab === "dalm" && render()); return `<h2>📅 Almanax</h2>${uxSkel(3)}`; }
   if (!DOF.alm) return `<h2>📅 Almanax</h2><div class="card err">⚠ ${esc(DOF.almErr)}</div><button class="btn" data-dact="alm-reload">⟳ Réessayer</button>`;
   const cfg = E.get("df:alm") || { watch: [], prep: {} }, prep = cfg.prep || {}, watch = (cfg.watch || []).map((w) => String(w).toLowerCase());
+  if (!DOF.alm.length) return `<h2>📅 Almanax</h2><div class="empty">dofusdude n'a pas encore l'Almanax de ces jours-là.</div><button class="btn" data-dact="alm-reload">⟳ Réessayer</button>`;
   const [t, ...next] = DOF.alm;
   const row = (d, big) => `<div class="card dalm ${big ? "today" : ""} ${watch.includes((d.type || "").toLowerCase()) ? "watched" : ""}">
       <div class="dalm-h">${big ? "<b>Aujourd'hui</b>" : `<b>${esc(dDay(d.date))}</b>`}${watch.includes((d.type || "").toLowerCase()) ? ' <span class="chip">🔔 surveillé</span>' : ""}</div>
@@ -126,4 +127,67 @@ document.addEventListener("click", async (e) => {
   }
 });
 document.addEventListener("click", (e) => { const b = e.target.closest("#dg-kind [data-k]"); if (!b) return; $$("#dg-kind [data-k]").forEach((x) => x.classList.toggle("on", x === b)); });
-TABS.dalm = viewDAlm; TABS.dgoals = viewDGoals; TABS.dshop = viewDShop; TABS.dadv = viewDAdv;
+TABS.dalm = viewDAlm; TABS.dgoals = viewDGoals; TABS.dshop = viewDShop; TABS.dadv = viewDAdv; TABS.dhunt = viewDHunt;
+
+/* ------------------------------------------------------------ 🧭 v186 : la chasse au trésor (DofusDB, lu directement, sans clé) */
+const DDB = () => localStorage.getItem("sigo.dev.ddb") || "https://api.dofusdb.fr";
+const HU = (() => { try { return JSON.parse(localStorage.getItem("sigo.dofus.hunt") || "null") || {}; } catch (_) { return {}; } })();
+Object.assign(HU, { x: HU.x ?? "", y: HU.y ?? "", dir: HU.dir || "", poi: "", steps: HU.steps || [], res: null, busy: false });
+let HU_POIS = null;
+const huSave = () => { try { localStorage.setItem("sigo.dofus.hunt", JSON.stringify({ x: HU.x, y: HU.y, dir: HU.dir, steps: HU.steps.slice(-30) })); } catch (_) {} };
+const huKey = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const HU_D = { right: [0, "→"], down: [2, "↓"], left: [4, "←"], up: [6, "↑"] };
+async function huPois() {
+  if (HU_POIS) return HU_POIS;
+  try { const c = JSON.parse(localStorage.getItem("sigo.dofus.pois") || "null"); if (c && Date.now() - c.at < 30 * 864e5) return (HU_POIS = c.pois); } catch (_) {}
+  const out = []; let skip = 0;
+  while (skip < 2000) { const r = await fetch(`${DDB()}/point-of-interest?$limit=50&$skip=${skip}&lang=fr`); if (!r.ok) throw new Error("DofusDB a répondu " + r.status);
+    const d = await r.json(); const rows = d.data || []; out.push(...rows.map((p) => p.name?.fr).filter(Boolean)); skip += rows.length; if (!rows.length || skip >= (d.total || 0)) break; }
+  HU_POIS = out.sort((a, b) => huKey(a).localeCompare(huKey(b))); localStorage.setItem("sigo.dofus.pois", JSON.stringify({ at: Date.now(), pois: HU_POIS })); return HU_POIS;
+}
+async function huGo() {
+  if (HU.x === "" || HU.y === "") return toast("Ta position ?", true);
+  if (!HU.dir) return toast("La flèche de l'indice ?", true);
+  HU.busy = true; render();
+  try {
+    const r = await fetch(`${DDB()}/treasure-hunt?x=${+HU.x}&y=${+HU.y}&direction=${HU_D[HU.dir][0]}&$limit=50&lang=fr`); if (!r.ok) throw new Error("DofusDB a répondu " + r.status);
+    const maps = ((await r.json()).data || []).map((m) => ({ x: m.posX, y: m.posY, dist: m.distance || 0, pois: (m.pois || []).map((p) => p.name?.fr || "") })).sort((a, b) => a.dist - b.dist);
+    const q = huKey(HU.poi), found = q ? (maps.find((m) => m.pois.some((p) => huKey(p) === q)) || maps.find((m) => m.pois.some((p) => huKey(p).includes(q)))) : null;
+    HU.res = { from: [+HU.x, +HU.y], arrow: HU_D[HU.dir][1], poi: HU.poi, maps, found };
+  } catch (e) { HU.res = { error: String(e.message || e) }; }
+  HU.busy = false; render();
+}
+function viewDHunt() {
+  if (!HU_POIS && !HU.poisErr) huPois().then(() => D.tab === "dhunt" && render()).catch((e) => { HU.poisErr = String(e.message || e); render(); });
+  const R = HU.res, f = R?.found;
+  const q = huKey(HU.poi), sug = q.length >= 2 && HU_POIS ? HU_POIS.filter((p) => huKey(p).includes(q)).sort((a, b) => huKey(a).indexOf(q) - huKey(b).indexOf(q)).slice(0, 8) : [];
+  return `<div class="lu-h"><h2>🧭 Chasse au trésor</h2>${HU.steps.length ? '<button class="btn" data-dact="hu-new">↺</button>' : ""}</div>
+    ${R && !R.error ? `<div class="card hu-res ${f ? "ok" : ""}">${f ? `<div class="muted small">« ${esc(R.poi)} » ${R.arrow}</div><div class="hu-big">[${f.x},${f.y}]</div><div>à <b>${f.dist}</b> carte${f.dist > 1 ? "s" : ""} ${R.arrow}</div>
+        <div class="btns"><button class="btn accent" data-dact="hu-copy" data-t="/travel ${f.x},${f.y}">📋 /travel</button><button class="btn" data-dact="hu-next">➡ Suivant</button></div>`
+      : `<div>❓ Pas trouvé dans les 10 cartes ${R.arrow}. Vérifie la flèche (ou c'est un Phorreur : avance jusqu'à le voir).</div>`}</div>` : R?.error ? `<div class="card err">⚠ ${esc(R.error)}</div>` : ""}
+    <div class="card"><div class="hu-pos"><b>[</b><input type="number" inputmode="numeric" id="hu-x" value="${esc(HU.x)}" placeholder="x"><b>,</b><input type="number" inputmode="numeric" id="hu-y" value="${esc(HU.y)}" placeholder="y"><b>]</b></div>
+      <div class="hu-pad">${Object.entries(HU_D).map(([k, [, a]]) => `<button class="hu-d d-${k} ${HU.dir === k ? "on" : ""}" data-dact="hu-dir" data-d="${k}">${a}</button>`).join("")}</div>
+      <input type="search" id="hu-poi" placeholder="L'indice…" value="${esc(HU.poi)}" autocomplete="off">
+      <div class="hu-sug">${sug.length === 1 && huKey(sug[0]) === q ? "" : sug.map((p) => `<button data-dact="hu-poi" data-p="${esc(p)}">${esc(p)}</button>`).join("")}</div>
+      <button class="btn accent" data-dact="hu-go" style="width:100%;margin-top:8px">${HU.busy ? "⟳ …" : "🔎 Où aller ?"}</button>
+      ${HU.poisErr ? `<div class="err small">⚠ ${esc(HU.poisErr)}</div>` : ""}</div>
+    ${R?.maps?.length ? `<div class="card">${R.maps.map((m) => `<div class="row hu-m ${f && m.x === f.x && m.y === f.y ? "hit" : ""}"><b>${m.dist}</b><span class="muted small">[${m.x},${m.y}]</span><div class="grow small">${m.pois.map(esc).join(" · ") || "—"}</div></div>`).join("")}</div>` : ""}
+    ${HU.steps.length ? `<h3>Étapes</h3><div class="card small">${HU.steps.map((s, i) => `<div>${i + 1}. [${s.from}] ${s.arrow} ${esc(s.poi)} → <b>[${s.to}]</b></div>`).join("")}</div>` : ""}
+    <p class="muted small">Données DofusDB. Garde le téléphone à côté pendant la chasse sur le PC.</p>`;
+}
+document.addEventListener("input", (e) => {
+  const id = e.target.id; if (!["hu-x", "hu-y", "hu-poi"].includes(id)) return;
+  HU[{ "hu-x": "x", "hu-y": "y", "hu-poi": "poi" }[id]] = e.target.value; huSave();
+  if (id === "hu-poi") { const p = e.target.selectionStart; render(); const i = $("#hu-poi"); if (i) { i.focus(); i.setSelectionRange(p, p); } }
+});
+document.addEventListener("keydown", (e) => { if (e.target.id === "hu-poi" && e.key === "Enter") { e.preventDefault(); huGo(); } });
+document.addEventListener("click", async (e) => {
+  const el = e.target.closest("[data-dact^='hu-']"); if (!el) return;
+  const a = el.dataset.dact;
+  if (a === "hu-dir") { HU.dir = el.dataset.d; huSave(); render(); return $("#hu-poi")?.focus(); }
+  if (a === "hu-poi") { HU.poi = el.dataset.p; return huGo(); }
+  if (a === "hu-go") return huGo();
+  if (a === "hu-copy") { try { await navigator.clipboard.writeText(el.dataset.t); toast("📋 " + el.dataset.t + " copié."); } catch (_) { toast(el.dataset.t, false); } return; }
+  if (a === "hu-next") { const f = HU.res.found; HU.steps.push({ from: HU.res.from, to: [f.x, f.y], arrow: HU.res.arrow, poi: HU.res.poi }); Object.assign(HU, { x: String(f.x), y: String(f.y), dir: "", poi: "", res: null }); huSave(); return render(); }
+  if (a === "hu-new") { Object.assign(HU, { x: "", y: "", dir: "", poi: "", res: null, steps: [] }); huSave(); return render(); }
+});
