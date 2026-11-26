@@ -29,7 +29,7 @@ function viewWatch() {
 function wtpCard(t) {
   const fol = (t.events || []).flatMap((e) => e.followed || []);
   return `<div class="card wtp-card st-${t.status}" data-act="wt" data-tid="${esc(t.id)}"><div class="row" style="border:none;padding:0">${logo(t.logo, t.name)}
-    <div class="grow"><div><b>${esc(t.name)}</b> ${wtpChip(t.status, t.start)}</div><div class="muted small">${t.start ? esc(fmtDay(t.start)) : ""}${t.online ? " · en ligne" : t.city ? " · " + esc(t.city) : ""}${t.attendees ? ` · ${t.attendees} j.` : ""}</div></div>›</div>
+    <div class="grow"><div><b>${esc(t.name)}</b> ${wtpChip(t.status, t.start)}${t.twitch?.length ? ' <span class="chip tw-live">🔴 Twitch</span>' : ""}</div><div class="muted small">${t.start ? esc(fmtDay(t.start)) : ""}${t.online ? " · en ligne" : t.city ? " · " + esc(t.city) : ""}${t.attendees ? ` · ${t.attendees} j.` : ""}</div></div>›</div>
     ${fol.length ? `<div class="wtp-fol">${fol.slice(0, 6).map((x) => { const [c, l] = x.status === "placed" ? ["ok", ordinal(x.place)] : WTP_P[x.status] || ["", ""]; return `<span class="chip ${c}">${esc(wtpWho(x))}${l ? " · " + esc(l) : ""}</span>`; }).join("")}</div>` : ""}</div>`;
 }
 /* 🏠 l'accueil : les tournois suivis en cours (et le prochain), en haut */
@@ -51,6 +51,7 @@ function sheetWatch(tid, keep) {
     <div class="card wtp-info">
       <div class="row"><span class="wtp-k">📅</span><div class="grow small">${wtpWhen(t.start, t.tz)}</div></div>
       ${place ? `<div class="row"><span class="wtp-k">📍</span><div class="grow small">${esc(place)}</div>${!t.online && (t.venue || t.city) ? `<a class="sglink" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([t.venue, t.city, t.country].filter(Boolean).join(", "))}">carte ↗</a>` : ""}</div>` : ""}
+      ${t.twitch?.length ? `<div class="row tw-row"><span class="wtp-k">🔴</span><div class="grow">${t.twitch.map((s) => `<a class="btn tw-go" target="_blank" rel="noopener" href="${esc(s.url)}"><b>🔴 ${esc(s.name)}</b> <span class="small">en direct sur Twitch</span>${s.title ? `<div class="muted small tw-tt">${esc(s.title)}</div>` : ""}</a>`).join("")}</div></div>` : ""}
       ${streams.length ? `<div class="row"><span class="wtp-k">📺</span><div class="grow chips">${streams.map((s) => `<a class="btn wtp-stream" target="_blank" rel="noopener" href="${esc(s.url)}">📺 ${esc(s.name)} <span class="muted small">${esc(s.source || "")}</span></a>`).join("")}</div></div>`
         : '<div class="row"><span class="wtp-k">📺</span><div class="grow muted small">Pas de stream renseigné.</div></div>'}
     </div>
