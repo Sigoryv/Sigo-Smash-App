@@ -532,3 +532,7 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 /* 🗂 v163 : la 2e rangée de Persos (Matchups, Mes persos) */
 .seg.lu-sub { margin: -4px 0 10px; font-size: .92em; }
 .sr-box { display: grid; gap: 4px; } .sr-box .vd-for-h { margin-bottom: 4px; }
+.mode-chip { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--panel2, rgba(255,255,255,.06)); white-space: nowrap; }
+#set-mode button { white-space: nowrap; font-size: .9em; padding-left: 6px; padding-right: 6px; }
+/* 🎮 v171 : le filtre Mode */
+.seg.mode-bar { margin: 0 0 10px; font-size: .85em; } .seg.mode-bar button { white-space: nowrap; padding-left: 4px; padding-right: 4px; }
