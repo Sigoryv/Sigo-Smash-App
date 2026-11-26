@@ -236,7 +236,18 @@ function wPickDone(name) {
   toast(name ? "🖼 Image choisie" : "Image retirée");
 }
 
-TABS.wlists = viewWLists; TABS.wlive = viewWLive; TABS.wsheets = viewWSheets; TABS.wcoll = viewWColl;
+TABS.wlists = viewWLists; TABS.wlive = viewWLive; TABS.wsheets = viewWSheets; TABS.wcoll = viewWColl; TABS.wnews = viewWNews;
+/* (📰 v183) les actus 40k de Goonhammer, lues par le Hub (instantané chiffré) : ⚖ points, ⚔ tes factions */
+function viewWNews() {
+  const xs = D.whNews || [];
+  if (!xs.length) return `<h2>📰 Actus 40k</h2><div class="empty">Pas encore d'article : le Hub lit Goonhammer toutes les 3 h, puis les envoie ici à la synchro.</div>`;
+  const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 3600 ? `il y a ${Math.max(1, Math.round(s / 60))} min` : s < 86400 ? `il y a ${Math.round(s / 3600)} h` : `il y a ${Math.round(s / 86400)} j`; };
+  return `<h2>📰 Actus 40k</h2>${xs.map((a) => `<a class="card wn-a ${a.points ? "pts" : ""} ${a.factions?.length ? "mine" : ""}" href="${esc(a.url)}" target="_blank" rel="noopener">
+      ${a.img ? `<div class="wn-img" style="background-image:url('${esc(a.img)}')"></div>` : ""}
+      <div>${a.points ? '<span class="chip warn">⚖ Points</span> ' : ""}${(a.factions || []).map((f) => `<span class="chip ok">⚔ ${esc(f)}</span> `).join("")}<b>${esc(a.title)}</b></div>
+      <div class="muted small">${esc(a.desc || "")}</div><div class="muted small">${a.at ? esc(ago(a.at)) : ""}</div></a>`).join("")}
+    <p class="muted small">Source : Goonhammer (en anglais). Alertes réglées dans le Hub (⚔ → 📰 Actus).</p>`;
+}
 
 /* ------------------------------------------------------------ les gestes */
 document.addEventListener("input", (e) => {
