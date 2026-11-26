@@ -2,7 +2,7 @@
    spaces.js — v75 : 🎮 / ⚔ / ♟ LES ESPACES DANS LA POCHE.
    - Un sélecteur en haut : Smash, Warhammer, Échecs ; chaque espace a ses onglets en bas (et retient le dernier).
    - La synchro des espaces passe par le MÊME document que tes PC : pc/espaces.enc.json dans ton dépôt privé
-     (chiffré, fusion entrée par entrée, la plus récente gagne). Le téléphone n'y garde que Warhammer et Échecs ;
+     (chiffré, fusion entrée par entrée, la plus récente gagne). Le téléphone n'y garde que Warhammer, Échecs et (v180) Dofus ;
      ce qu'il modifie arrive sur tes PC à leur prochaine synchro, et inversement.
    - Les images (tes photos Warhammer) : pc/f/<empreinte>.enc, déchiffrées ici et gardées dans le cache.
    - Les fiches OpenHammer de tes factions : wh-units-N.enc.json, envoyées par le Hub (lisibles sans réseau).
@@ -10,22 +10,23 @@
 
 /** (v83) un squelette de chargement (au lieu de « … ») */
 const uxSkel = (n = 4) => `<div class="skel">${Array.from({ length: n }, (_, i) => `<div class="skel-r"><i></i><div><b style="width:${55 + ((i * 17) % 35)}%"></b><b style="width:${30 + ((i * 23) % 40)}%"></b></div></div>`).join("")}</div>`;
-const SPACES = [["smash", "🎮", "Smash"], ["wh", "⚔", "Warhammer"], ["ch", "♟", "Échecs"]];
+const SPACES = [["smash", "🎮", "Smash"], ["dofus", "🧙", "Dofus"], ["wh", "⚔", "Warhammer"], ["ch", "♟", "Échecs"]];      // (🧙 v180 : + Dofus)
 /* (v101) les icônes dessinées (icons.js) à la place des emojis de la barre du bas et du sélecteur d'espace */
-const M_ICO = { smash: "trophy", wh: "shield", ch: "crown", home: "home", tours: "trophy", players: "swords", mu: "users", carnet: "book", infos: "search",
-  wlists: "list", wlive: "swords", wsheets: "file", wcoll: "box", chome: "pawn", chlearn: "book", chgames: "pawn", chstats: "chart", chopp: "swords" };
+const M_ICO = { smash: "trophy", wh: "shield", ch: "crown", dofus: "egg", dalm: "calendar", dgoals: "target", dshop: "cart", dadv: "scroll", home: "home", tours: "trophy", players: "swords", mu: "users", carnet: "book", infos: "search",
+  wlists: "list", wlive: "swords", wsheets: "file", wcoll: "box", wnews: "news", chome: "pawn", chlearn: "book", chgames: "pawn", chstats: "chart", chopp: "swords" };
 const mIco = (id, em, size = 22) => (typeof ico === "function" && M_ICO[id] ? ico(M_ICO[id], size) : em);
 const SPACE_TABS = {
   smash: [["home", "🏠", "Accueil"], ["tours", "🏆", "Tournois"], ["players", "🆚", "Joueurs"], ["mu", "🎭", "Persos"], ["carnet", "📓", "Carnet"]],      // (🗂 v163 : 🔎 Infos est dans Persos)
-  wh: [["wlists", "📋", "Listes"], ["wlive", "🎲", "Partie"], ["wsheets", "📖", "Fiches"], ["wcoll", "📦", "Collection"]],
+  wh: [["wlists", "📋", "Listes"], ["wlive", "🎲", "Partie"], ["wsheets", "📖", "Fiches"], ["wcoll", "📦", "Collection"], ["wnews", "📰", "Actus"]],
   ch: [["chome", "♟", "Échecs"]],
+  dofus: [["dalm", "📅", "Almanax"], ["dgoals", "🎯", "Objectifs"], ["dshop", "🛒", "Courses"], ["dadv", "📜", "Aventure"]],
 };
 const spaceOfTab = (t) => (Object.entries(SPACE_TABS).find(([, ts]) => ts.some((x) => x[0] === t)) || ["smash"])[0];
 D.space = SPACES.some((s) => s[0] === D.space) ? D.space : spaceOfTab(D.tab);
 D.tabs = D.tabs || {}; D.esp = Object.assign({ flat: {}, stamps: {} }, D.esp); D.espRO = D.espRO || {};
 
 /* ------------------------------------------------------------ l'en-tête et les onglets */
-const M_LOGO = { smash: "smash", wh: "wh", ch: "chess" };   // (v106) les logos de Lucas (img/)
+const M_LOGO = { smash: "smash", dofus: "dofus", wh: "wh", ch: "chess" };   // (v106) les logos de Lucas (img/)
 $("#title").insertAdjacentHTML("beforebegin", `<div id="spaces" role="tablist">${SPACES.map(([id, em, n]) => `<button data-space="${id}" aria-label="${n}" title="${n}">${M_LOGO[id] ? `<img class="sp-logo" src="img/${M_LOGO[id]}.png" alt="">` : mIco(id, em, 20)}</button>`).join("")}</div>`);
 function paintChrome() {
   $$("#spaces [data-space]").forEach((b) => b.classList.toggle("on", b.dataset.space === D.space));
@@ -44,7 +45,7 @@ renderView = function () {
   $$("#tabs [data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === D.tab));
   $("#title").textContent = SPACES.find((s) => s[0] === D.space)[2];
   const v = $("#view");
-  if ((!D.cfg.repo || !D.cfg.ghToken || !D.cfg.pass) && D.space !== "ch") {             // (♟ : l'apprentissage et Chess.com marchent sans le Hub)
+  if ((!D.cfg.repo || !D.cfg.ghToken || !D.cfg.pass) && D.space !== "ch" && D.space !== "dofus") {             // (♟ : l'apprentissage et Chess.com marchent sans le Hub ; 🧙 : l'Almanax aussi)
     v.innerHTML = `<div class="card setup"><h2>${SPACES.find((s) => s[0] === D.space)[1]} ${SPACES.find((s) => s[0] === D.space)[2]}</h2>
       <p>Tes données ${D.space === "wh" ? "Warhammer (listes, collection, parties)" : "d'échecs"} viennent de tes PC, par le même dépôt privé chiffré que le carnet Smash.</p>
       <button class="btn accent" data-act="settings" style="width:100%">⚙ Régler la synchro avec le Hub</button></div>`;
@@ -64,7 +65,7 @@ function closeSheetQuiet() { $("#sheet-back").hidden = true; }
 
 /* ------------------------------------------------------------ 🗂 les données des espaces (à plat, datées, comme sur les PC) */
 const ESP_DOC = "pc/espaces.enc.json";
-const espIn = (k) => /^(wh:(coll|list|game|live|paint|cfg|art|uimg)(:|$)|ch:(cfg|learn|rep)(:|$)|file:warhammer\/photos\/)/.test(k);     // (v78 : + tes images Warhammer, ajoutables d'ici)
+const espIn = (k) => /^(wh:(coll|list|game|live|paint|cfg|art|uimg)(:|$)|ch:(cfg|learn|rep)(:|$)|df:(alm|shoplist|pinfo)$|df:(have|team|char):|df:cfg:(goals|pins)$|file:warhammer\/photos\/)/.test(k);     // (🧙 v180 : + Dofus)     // (v78 : + tes images Warhammer, ajoutables d'ici)
 const E = {
   get: (k) => (D.esp.flat[k] === undefined ? undefined : structuredClone(D.esp.flat[k])),     // (une copie : la modifier ne change rien tant qu'on ne fait pas E.set)
   set(k, v) {
