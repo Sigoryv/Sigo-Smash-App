@@ -26,6 +26,7 @@ function navBack() {
     if (CHM.les && D.tab === "chlearn") { CHM.les = null; render(); return true; }
     if (CHM.gid && D.tab === "chgames") { CHM.gid = ""; render(); return true; }
     if (typeof CHL !== "undefined" && D.tab === "chlive") {                                  // (📡 v181)
+      if (typeof TV !== "undefined" && TV.on) { TV.on = false; tvStop(); render(); return true; }      // (📺 v185)
       if (CHL.gid) { CHL.gid = ""; CHL.pgn = null; render(); return true; }
       if (CHL.tour) { CHL.tour = null; CHL.round = null; render(); return true; }
     }
