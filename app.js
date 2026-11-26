@@ -918,7 +918,9 @@ async function syncCloud() {
   if (snap.obj) {
     const s = await decrypt(snap.obj); snapShobu = s;
     if (s.watch && (s.watch.at || 0) >= (D.watch?.at || 0)) D.watch = s.watch;          // (📺 v116 : les tournois à suivre du Hub)
-    if (s.prep) D.prep = s.prep;                                                          // (🎯 v157 : tes adversaires probables, préparés par le Hub)
+    if (s.prep) D.prep = s.prep;
+    if (Array.isArray(s.wh_news)) D.whNews = s.wh_news;
+    if (s.ultrank?.rows) D.ultrank = s.ultrank;                                            // (🌍 v184 : le classement mondial, lu par le Hub)                                   // (📰 v183 : les actus 40k lues par le Hub)                                                          // (🎯 v157 : tes adversaires probables, préparés par le Hub)
     if (typeof luSyncFrames === "function") await luSyncFrames(s).catch((e) => localStorage.setItem("sigo.frames.err", "Frame data : " + e.message));   // (v65 : la frame data gardée par le Hub)
     if (typeof sceneSync === "function") await sceneSync(s).catch(() => {});        // (🏅🎬 v156 : le classement local et les VODs du Hub)
     if (s.last_sync && (!D.lastSg || new Date(s.last_sync) > new Date(D.lastSg))) {
@@ -1079,7 +1081,7 @@ async function findGo() {
 let pq = "";
 function viewPlayers() {
   const st = stats(allSets()), list = st.opps.filter((o) => !pq || key(o.name).includes(key(pq)));
-  return `<div class="sc-links"><button class="btn" data-act="sc-rank">🏅 Classement local</button><button class="btn" data-act="sc-vods">🎬 VODs</button></div>
+  return `<div class="sc-links"><button class="btn" data-act="sc-rank">🏅 Classement local</button><button class="btn" data-act="ur-open">🌍 UltRank</button><button class="btn" data-act="sc-vods">🎬 VODs</button></div>
     <input type="search" id="pq" placeholder="Chercher un joueur…" value="${esc(pq)}" style="margin-bottom:10px">
     <div class="card">${list.slice(0, 150).map((o) => `<div class="row" data-opp="${esc(o.id)}">${av(o.id, o.name)}<div class="grow"><div><b>${esc(o.name)}</b>${o.both ? ' <span class="chip shobu">🔗 Shobu</span>' : ""}${C.get("opp_notes", o.id) ? " 📝" : ""}</div>
       <div class="muted small">games ${o.gw}-${o.gl} · ${fmtDate(o.last)}</div></div><span>${wl(o.w, o.l)}</span></div>`).join("") || '<div class="empty">Personne.</div>'}</div>`;
