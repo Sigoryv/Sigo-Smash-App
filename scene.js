@@ -115,3 +115,26 @@ document.addEventListener("click", (e) => {
   if (a === "sc-kind") { SC.kind = el.dataset.v; SHEET_KEEP = true; return sheetRank(); }
   if (a === "sc-link") { const was = C.get("vods", el.dataset.id) || { marks: [] }; C.set("vods", el.dataset.id, { ...was, url: el.dataset.url, marks: was.marks || [] }); toast("🔗 VOD reliée (synchronisée avec le Hub)."); SHEET_KEEP = true; return sheetVods(); }
 });
+
+/* ------------------------------------------------------------ 🌍 v184 : le classement mondial UltRank (lu par le Hub sur SmashWiki) */
+const URP = { only: "all" };
+function sheetUltrank() {
+  const me = () => sheetUltrank(); if (CUR && CUR !== me) BACK = CUR; CUR = me;
+  const U = D.ultrank;
+  if (!U?.rows?.length) { sheet(`<h2>🌍 UltRank</h2><div class="card muted">Le classement mondial est lu par le Hub (Smash → Joueurs → Classement → 🌍 UltRank mondial), puis la synchro l'apporte ici.</div><div class="btns">${closeBtn()}</div>`); return; }
+  const rows = U.rows.map((r) => ({ rank: r[0], tag: r[1], prev: r[2], chars: r[3] || [], country: r[4], score: r[5], h2h: r[6] }));
+  const faced = rows.filter((r) => r.h2h), fr = rows.filter((r) => r.country === "France");
+  const list = rows.filter((r) => URP.only === "all" || (URP.only === "faced" ? r.h2h : r.country === URP.only));
+  const mv = (r) => r.prev == null ? '<span class="ur-new">new</span>' : r.prev === r.rank ? '<span class="muted small">=</span>' : r.prev > r.rank ? `<span class="ok small">▲${r.prev - r.rank}</span>` : `<span class="warn small">▼${r.rank - r.prev}</span>`;
+  sheet(`<h2>🌍 ${esc(U.title)}</h2><div class="muted small" style="margin:-6px 0 8px">${esc(U.period)}</div>
+    <div class="seg">${[["all", `Tout`], ["faced", `🆚 Affrontés (${faced.length})`], ...(fr.length ? [["France", `🇫🇷 (${fr.length})`]] : [])].map(([k, n]) => `<button data-act="ur-only" data-v="${esc(k)}" class="${URP.only === k ? "on" : ""}">${n}</button>`).join("")}</div>
+    <div class="card">${list.map((r) => `<div class="row ur-r ${r.h2h ? "ur-faced" : ""}"><b class="ur-rk">${r.rank}</b>${mv(r)}<div class="grow"><div><b>${esc(r.tag)}</b> <span class="muted small">${esc(r.country)}</span></div>
+      <div class="muted small">${r.chars.slice(0, 4).map(esc).join(" · ")}</div></div>${r.h2h ? wl(r.h2h[0], r.h2h[1]) : `<span class="muted small">${r.score.toFixed(1)}</span>`}</div>`).join("") || '<div class="empty">Personne.</div>'}</div>
+    <p class="muted small">Source : SmashWiki (UltRank). « Affrontés » : tes sets start.gg et Shobu.</p><div class="btns">${closeBtn()}</div>`, SHEET_KEEP);
+  SHEET_KEEP = false;
+}
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-act]"); if (!el) return;
+  if (el.dataset.act === "ur-open") return sheetUltrank();
+  if (el.dataset.act === "ur-only") { URP.only = el.dataset.v; SHEET_KEEP = true; return sheetUltrank(); }
+});
