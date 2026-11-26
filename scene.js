@@ -79,7 +79,7 @@ async function sheetVods(q) {
   const all = scVods(), words = key(SC.q).split(/\s+/).filter(Boolean), c1 = scSlug(SC.c1), c2 = scSlug(SC.c2);
   const has = (l, c) => !c || (l || []).some((x) => scSlug(x) === c || scSlug(scCharName(x)) === c);
   const res = all.filter((v) => (!words.length || words.every((w) => key(v.title).includes(w))) && (!c1 && !c2 || v.p1 && ((has(v.c1, c1) && has(v.c2, c2)) || (has(v.c2, c1) && has(v.c1, c2)))));
-  const mine = (S.vods.mine || []).filter(([sid]) => !(C.get("vods", sid) || {}).url).map(([sid, vid, sure]) => ({ s: allSets().find((x) => String(x.id) === String(sid)), v: all.find((x) => x.key === vid), sure })).filter((m) => m.s && m.v);
+  const mine = (S.vods.mine || []).filter(([sid]) => !(C.get("vods", sid) || {}).url).map(([sid, vid, sure]) => ({ s: allSetsRaw().find((x) => String(x.id) === String(sid)), v: all.find((x) => x.key === vid), sure })).filter((m) => m.s && m.v);
   const names = [...new Set(Object.values(D.chars || {}))].sort((a, b) => a.localeCompare(b));
   const opt = (v) => `<option value="">perso…</option>${names.map((n) => `<option ${v === n ? "selected" : ""}>${esc(n)}</option>`).join("")}`;
   sheet(`<h2>🎬 VODs</h2>
