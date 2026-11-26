@@ -574,3 +574,17 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 /* (v184) 🌍 UltRank */
 .ur-r { gap: 8px; align-items: center; } .ur-rk { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; } .ur-new { font-size: 11px; color: var(--green, #3fb950); font-weight: 700; }
 .ur-r.ur-faced { background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 8px; }
+
+/* (v185) 📺 Lichess TV */
+.li-tvcard { display: block; width: 100%; text-align: left; color: var(--text); border-color: #9146ff55; }
+
+/* (v186) 🧭 chasse au trésor */
+.hu-pos { display: flex; gap: 6px; align-items: center; justify-content: center; font-size: 20px; } .hu-pos input { width: 90px; text-align: center; font-size: 18px; }
+.hu-pad { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(3, 50px); gap: 6px; justify-content: center; margin: 10px 0; }
+.hu-d { font-size: 26px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); }
+.hu-d.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.hu-d.d-up { grid-area: 1 / 2; } .hu-d.d-left { grid-area: 2 / 1; } .hu-d.d-right { grid-area: 2 / 3; } .hu-d.d-down { grid-area: 3 / 2; }
+#hu-poi { width: 100%; } .hu-sug { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.hu-sug button { border: 1px solid var(--line); background: var(--panel2); color: var(--text); border-radius: 14px; padding: 6px 12px; font: inherit; font-size: 14px; }
+.hu-res { text-align: center; } .hu-res.ok { border-color: var(--accent); } .hu-big { font-size: 38px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.hu-m { gap: 8px; } .hu-m.hit { background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 8px; }
