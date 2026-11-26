@@ -183,6 +183,7 @@ function sheetWSheet(fac, id) {
     ${wt(u.ranged, false)}${wt(u.melee, true)}
     ${u.abilities?.length ? `<h3>✨ Aptitudes</h3><div class="card">${u.abilities.map((a) => `<p class="small"><b>${esc(a.name)}</b>${a.description ? " — " + esc(a.description.replace(/\*\*/g, "")) : ""}</p>`).join("")}</div>` : ""}
     ${u.keywords?.length ? `<div class="chips wrap">${u.keywords.map((k) => `<span class="chip">${esc(k)}</span>`).join("")}</div>` : ""}
+    ${u.source === "wahapedia" ? '<div class="muted small" style="font-style:italic">📚 powered by Wahapedia</div>' : ""}
     <div class="btns"><button class="btn" data-wpicker="unit" data-key="${esc(wKey(u.name))}" data-fac="${esc(fac)}" data-id="${esc(id)}">🖼 ${p ? "Changer l'image" : "Choisir une image"}</button><button class="btn" data-act="close">Fermer</button></div>`);
 }
 
