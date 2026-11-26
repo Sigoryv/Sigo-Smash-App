@@ -267,3 +267,16 @@ function srHTML(sr, link) {
   return `<div class="sr-box"><div class="vd-for-h">🔭 <b>Ses habitudes</b> <span class="muted small">tes revues de ${sr.vods} de ses VODs</span></div>
     ${sr.cats.map((g) => `<div class="small sr-cat"><b>${g.c ? rvCatIcon(g.c) + " " + esc(rvCatName(g.c)) : "📝 Notes"}</b>${g.items.slice(0, 4).map((x) => ` · ${x.text ? "« " + esc(x.text) + " »" : ""} <a ${link(x)} title="${esc(x.title)}">${esc(x.t)} ▶</a>`).join("")}${g.items.length > 4 ? ` <span class="muted">+${g.items.length - 4}</span>` : ""}</div>`).join("")}</div>`;
 }
+
+/* ===================================================================== 🎮 v170 : le mode de jeu d'un set (1v1, 2v2, Squad Strike)
+   deviné comme sur le Hub (le nom de l'event, une équipe de 2 joueurs ou plus ; sinon 1v1) ; ta correction passe devant */
+const MODES = [["1v1", "1v1", "🎮"], ["2v2", "2v2", "🤝"], ["squad", "Squad Strike", "🧩"]];
+const modeName = (m) => (MODES.find((x) => x[0] === m) || MODES[0])[1], modeIcon = (m) => (MODES.find((x) => x[0] === m) || MODES[0])[2];
+function guessMode(event, players = 1) {
+  const e = String(event || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (/squad|\b[35] ?v ?[35]\b|strike/.test(e)) return "squad";
+  if (/double|dubs|\b2 ?v ?2\b|\bduo|teams?\b/.test(e) || players >= 2) return "2v2";
+  return "1v1";
+}
+/* le badge d'un set qui n'est pas en 1v1 */
+const modeChip = (m) => (m && m !== "1v1" ? `<span class="mode-chip" title="${esc(modeName(m))}">${modeIcon(m)} ${esc(modeName(m))}</span>` : "");
