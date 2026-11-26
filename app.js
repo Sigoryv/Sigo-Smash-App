@@ -60,7 +60,9 @@ const C = {
   section: (sec) => Object.entries(D.carnet.flat).filter(([k]) => k.startsWith(sec + "/")).map(([k, v]) => [k.slice(sec.length + 1), v]),
 };
 const notes = (id) => C.get("notes", id) || "";
-const allSets = () => [...D.sets, ...C.section("manual").map(([, v]) => v)].filter((s) => !s.game || s.game === ULT).sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+const allSetsRaw = () => [...D.sets, ...C.section("manual").map(([, v]) => v)].filter((s) => !s.game || s.game === ULT).sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+/* 🎮 v171 : le filtre Mode (comme sur le Hub) : tes stats, tes adversaires, tes persos… dans un seul mode ; allSetsRaw : tous, pour retrouver un set */
+const allSets = () => (D.mode && D.mode !== "all" ? allSetsRaw().filter((s) => modeOf(s) === D.mode) : allSetsRaw());
 const games = (s) => C.get("games", s.id) || s.games || [];
 
 /* ------------------------------------------------------------ les stats (comme le Hub) */
@@ -978,7 +980,7 @@ function renderView() {
   $("#title").textContent = p ? (p.prefix ? p.prefix + " | " : "") + p.tag : "Sigo Hub";
   const v = $("#view");
   if (!D.cfg.sgToken && !D.cfg.repo) { v.innerHTML = viewWelcome(); return; }
-  v.innerHTML = (TABS[D.tab] || viewHome)();
+  v.innerHTML = modeBar() + (TABS[D.tab] || viewHome)();
   bindView();
 }
 function viewWelcome() {
@@ -1092,7 +1094,7 @@ function viewMatchups() {
 function viewCarnet() {
   const sets = allSets().slice(0, 250);
   return `<div class="card">${sets.map((s) => `<div class="row" data-set="${esc(s.id)}"><span class="res ${s.dq ? "" : s.win ? "w" : "l"}">${s.dq ? "DQ" : s.win ? "V" : "D"}</span>
-      ${av(s.opp_id, s.opp, "sm")}<div class="grow"><div><b>${esc(s.opp)}</b> <span class="muted small">${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}</span>${[...new Set(games(s).map((g) => charName(g.opp)).filter(Boolean))].slice(0, 3).map((c) => ci(c, "xs")).join("")}</div><div class="muted small">${fmtDate(s.ts)} · ${esc(s.tournament)}</div></div>
+      ${av(s.opp_id, s.opp, "sm")}<div class="grow"><div><b>${esc(s.opp)}</b> <span class="muted small">${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}</span>${[...new Set(games(s).map((g) => charName(g.opp)).filter(Boolean))].slice(0, 3).map((c) => ci(c, "xs")).join("")} ${modeChip(modeOf(s))}</div><div class="muted small">${fmtDate(s.ts)} · ${esc(s.tournament)}</div></div>
       <span class="small">${C.get("vods", s.id) ? "🎬" : ""}${notes(s.id) ? "📝" : ""}${s.source === "manual" ? "✍" : ""}</span></div>`).join("") || '<div class="empty">Aucun set : ⟳ pour synchroniser.</div>'}</div>
     <button class="fab" data-act="set-new" aria-label="Ajouter un set">＋</button>`;
 }
@@ -1429,17 +1431,28 @@ function fillPick(who, v) {
   const F = window.FILL; if (!F || !v) return;
   F[who] = v;
   if (F.me && F.opp) {
-    const s = allSets().find((x) => x.id === F.id);
+    const s = allSetsRaw().find((x) => x.id === F.id);
     if (s) { C.set("games", s.id, fillGames(s, F.me, F.opp)); toast(`🎭 ${F.me} vs ${F.opp} : enregistré.`); }
     F.id = null;
   }
   sheetFill(skip);
 }
+/* 🎮 v171 : la barre du filtre Mode, en haut des onglets Smash (dès que tu as un set qui n'est pas en 1v1, ou un filtre choisi) */
+function modeBar() {
+  const m = D.mode || "all";
+  if (m === "all" && !allSetsRaw().some((s) => modeOf(s) !== "1v1")) return "";
+  return `<div class="seg mode-bar">${[["all", "Tous"], ...MODES.map(([k, n, i]) => [k, `${i} ${n}`])].map(([k, n]) => `<button data-act="mode-flt" data-mode="${k}" class="${m === k ? "on" : ""}">${esc(n)}</button>`).join("")}</div>`;
+}
+/* 🎮 v170 : le mode d'un set (ta correction, celui du Hub, sinon deviné) */
+const modeAuto = (s) => s.mode_auto || s.mode || (s.source === "manual" ? "1v1" : guessMode(s.event));
+const modeOf = (s) => C.get("modes", s.id) || modeAuto(s);
 function sheetSet(id) {
-  const s = allSets().find((x) => x.id === id); if (!s) return;
+  const s = allSetsRaw().find((x) => x.id === id); if (!s) return;
+  const md = modeOf(s);
   const v = C.get("vods", id) || { url: "", marks: [] }, gs = games(s);
   sheet(`<h2>${s.win ? "✅" : "❌"} ${esc(s.opp)} <span class="muted small">${s.score?.[0] ?? "?"}-${s.score?.[1] ?? "?"}</span></h2>
     <div class="muted small">${fmtDate(s.ts)} · ${esc(s.tournament)}${s.round ? " · " + esc(s.round) : ""}</div>
+    <div class="seg" id="set-mode" style="margin-top:8px">${MODES.map(([m, n, i]) => `<button data-act="set-mode" data-mode="${m}" class="${md === m ? "on" : ""}">${i} ${esc(n)}</button>`).join("")}</div>
     ${gs.length ? `<div class="card" style="margin-top:10px">${gs.map((g, i) => `<div class="small">G${i + 1} · ${esc(charName(g.me) || "?")} vs ${esc(charName(g.opp) || "?")}${g.stage ? " · " + esc(g.stage) : ""} · ${g.win == null ? "?" : g.win ? '<span class="w">V</span>' : '<span class="l">D</span>'}</div>`).join("")}</div>` : ""}
     <label>📝 Note</label><textarea id="set-note" placeholder="Ce qui a marché, ce qui n'a pas marché…">${esc(notes(id))}</textarea>
     <label>🎬 VOD</label><input type="url" id="vod-url" placeholder="https://youtu.be/…" value="${esc(v.url)}">
@@ -1596,9 +1609,13 @@ document.addEventListener("click", async (e) => {
   if (act === "fill") { BACK = null; window.FILLSKIP = []; return sheetFill([]); }   // (🎭 v147)
   if (act === "fill-pick") return fillPick(el.dataset.who, el.dataset.v);
   if (act === "fill-skip") { (window.FILLSKIP ||= []).push(el.dataset.id); return sheetFill(window.FILLSKIP); }
+  if (act === "mode-flt") { D.mode = el.dataset.mode === "all" ? "" : el.dataset.mode; save(); render(); return; }
+  if (act === "set-mode") { $$("#set-mode [data-mode]").forEach((b) => b.classList.toggle("on", b === el)); return; }
   if (act === "save-set") {
     const id = el.dataset.id;
     C.set("notes", id, $("#set-note").value.trim());
+    const ss = allSetsRaw().find((x) => x.id === id), mo = $("#set-mode .on")?.dataset.mode;        // (🎮 v170)
+    if (ss && mo && mo !== modeOf(ss)) C.set("modes", id, mo === modeAuto(ss) ? null : mo);
     const url = $("#vod-url").value.trim();
     if (url && !/^https?:\/\//.test(url)) return toast("Le lien de la VOD doit commencer par https://", true);
     const marks = $$("#marks .mark").map((m) => ({ t: m.querySelector(".mk-t").value.trim(), text: m.querySelector(".mk-x").value.trim().slice(0, 200) }))
