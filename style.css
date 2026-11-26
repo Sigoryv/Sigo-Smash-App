@@ -536,3 +536,41 @@ html[data-space=wh] .res.w, html[data-space=ch] .res.w { color: var(--green); ba
 #set-mode button { white-space: nowrap; font-size: .9em; padding-left: 6px; padding-right: 6px; }
 /* 🎮 v171 : le filtre Mode */
 .seg.mode-bar { margin: 0 0 10px; font-size: .85em; } .seg.mode-bar button { white-space: nowrap; padding-left: 4px; padding-right: 4px; }
+
+/* (v180) 🧙 Dofus */
+.dalm.today { border-color: var(--accent); } .dalm.watched { box-shadow: 0 0 0 1px #d29922 inset; }
+.dalm-h { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; text-transform: capitalize; }
+.dalm-b { display: flex; gap: 10px; align-items: center; } .dalm-b img, .dshop img { width: 40px; height: 40px; object-fit: contain; flex: none; }
+.dprep { min-height: 36px; padding: 6px 10px; white-space: nowrap; } .dprep.on { background: color-mix(in srgb, var(--accent) 25%, var(--panel)); border-color: var(--accent); }
+.dgoal { align-items: center; gap: 10px; } .dgoal.done .grow > div:first-child { text-decoration: line-through; opacity: .6; }
+.dchk { width: 32px; height: 32px; flex: none; border-radius: 9px; border: 2px solid var(--line); background: var(--panel2); color: var(--text); font-size: 18px; }
+.dchk.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dshop { align-items: center; gap: 10px; } .dshop.done { opacity: .65; }
+.dqty { display: flex; align-items: center; gap: 4px; flex: none; } .dqty .btn { min-height: 34px; min-width: 34px; padding: 0 8px; } .dqty span { min-width: 44px; text-align: center; font-size: 13px; }
+.dpin.done { opacity: .7; } .dpin-seg { margin-top: 8px; }
+
+/* (v181) ♟ Lichess */
+.li-card { margin-top: 10px; } .li-pv { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.li-pv:first-of-type { border-top: 0; } .li-pv span { overflow-wrap: anywhere; }
+.li-ev { min-width: 52px; font-variant-numeric: tabular-nums; } .li-ev.w { color: #3fb950; } .li-ev.l { color: #f85149; } .li-ev.d { color: var(--muted); }
+.li-tb { padding: 4px 0 6px; }
+.li-pz .ch-board { margin: 8px auto; } .li-pz-m { text-align: center; margin: 6px 0; } .li-ok { color: #3fb950; } .li-ko { color: #f85149; }
+.li-tour { display: block; width: 100%; text-align: left; color: var(--text); }
+.li-rounds { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 6px; } .li-rounds .chip-b { flex: none; }
+.li-games { display: grid; gap: 8px; } .li-g { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; color: var(--text); padding: 8px; }
+.li-g .ch-board.mini { max-width: 118px; } .li-gp { display: grid; gap: 4px; font-size: 13px; min-width: 0; } .li-gp > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li-ck { font-variant-numeric: tabular-nums; color: var(--muted); } .li-st { font-size: 12px; color: var(--muted); } .li-st.on { color: #f85149; }
+.li-title { color: #d29922; font-weight: 700; font-size: 12px; } .li-pl { display: flex; gap: 6px; align-items: baseline; margin: 6px 2px; }
+
+/* (v182) 🔴 Twitch dans les tournois suivis */
+.chip.tw-live { color: #ff6b6b; border-color: currentColor; animation: twpulse 2s ease-in-out infinite; }
+@keyframes twpulse { 50% { opacity: .55; } } @media (prefers-reduced-motion: reduce) { .chip.tw-live { animation: none; } }
+.tw-go { display: block; width: 100%; text-align: left; margin-bottom: 6px; border-color: #9146ff; text-decoration: none; color: var(--text); } .tw-go b { color: #ff6b6b; } .tw-tt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* (v183) 📰 actus 40k */
+.wn-a { display: block; color: var(--text); text-decoration: none; } .wn-a.pts { border-left: 3px solid #d29922; } .wn-a.mine:not(.pts) { border-left: 3px solid var(--accent); }
+.wn-a b { display: inline; } .wn-a > div { margin-top: 4px; } .wn-img { height: 120px; border-radius: 8px; background: var(--panel2) center/cover no-repeat; margin: -2px 0 8px; }
+
+/* (v184) 🌍 UltRank */
+.ur-r { gap: 8px; align-items: center; } .ur-rk { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; } .ur-new { font-size: 11px; color: var(--green, #3fb950); font-weight: 700; }
+.ur-r.ur-faced { background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 8px; }
