@@ -12,14 +12,14 @@
 const uxSkel = (n = 4) => `<div class="skel">${Array.from({ length: n }, (_, i) => `<div class="skel-r"><i></i><div><b style="width:${55 + ((i * 17) % 35)}%"></b><b style="width:${30 + ((i * 23) % 40)}%"></b></div></div>`).join("")}</div>`;
 const SPACES = [["smash", "🎮", "Smash"], ["dofus", "🧙", "Dofus"], ["wh", "⚔", "Warhammer"], ["ch", "♟", "Échecs"]];      // (🧙 v180 : + Dofus)
 /* (v101) les icônes dessinées (icons.js) à la place des emojis de la barre du bas et du sélecteur d'espace */
-const M_ICO = { smash: "trophy", wh: "shield", ch: "crown", dofus: "egg", dalm: "calendar", dgoals: "target", dshop: "cart", dadv: "scroll", home: "home", tours: "trophy", players: "swords", mu: "users", carnet: "book", infos: "search",
+const M_ICO = { smash: "trophy", wh: "shield", ch: "crown", dofus: "egg", dalm: "calendar", dgoals: "target", dshop: "cart", dadv: "scroll", dhunt: "compass", home: "home", tours: "trophy", players: "swords", mu: "users", carnet: "book", infos: "search",
   wlists: "list", wlive: "swords", wsheets: "file", wcoll: "box", wnews: "news", chome: "pawn", chlearn: "book", chgames: "pawn", chstats: "chart", chopp: "swords" };
 const mIco = (id, em, size = 22) => (typeof ico === "function" && M_ICO[id] ? ico(M_ICO[id], size) : em);
 const SPACE_TABS = {
   smash: [["home", "🏠", "Accueil"], ["tours", "🏆", "Tournois"], ["players", "🆚", "Joueurs"], ["mu", "🎭", "Persos"], ["carnet", "📓", "Carnet"]],      // (🗂 v163 : 🔎 Infos est dans Persos)
   wh: [["wlists", "📋", "Listes"], ["wlive", "🎲", "Partie"], ["wsheets", "📖", "Fiches"], ["wcoll", "📦", "Collection"], ["wnews", "📰", "Actus"]],
   ch: [["chome", "♟", "Échecs"]],
-  dofus: [["dalm", "📅", "Almanax"], ["dgoals", "🎯", "Objectifs"], ["dshop", "🛒", "Courses"], ["dadv", "📜", "Aventure"]],
+  dofus: [["dalm", "📅", "Almanax"], ["dgoals", "🎯", "Objectifs"], ["dshop", "🛒", "Courses"], ["dadv", "📜", "Aventure"], ["dhunt", "🧭", "Chasse"]],
 };
 const spaceOfTab = (t) => (Object.entries(SPACE_TABS).find(([, ts]) => ts.some((x) => x[0] === t)) || ["smash"])[0];
 D.space = SPACES.some((s) => s[0] === D.space) ? D.space : spaceOfTab(D.tab);
