@@ -186,7 +186,7 @@ async function syncStartgg() {
       evs.push({ eid: String(e.id), name: e.name || "", entrants: e.numEntrants || list.length, me: mine || null, seeded: list.some((x) => x.seed), list });
     }
     const [timg, tbanner] = images(t);
-    if (evs.length) out.push({ tid: String(t.id), name: t.name, slug: t.slug, start: t.startAt, city: t.city || "", online: !!t.isOnline, attendees: t.numAttendees || 0, timg, tbanner, events: evs });
+    if (evs.length) out.push({ tid: String(t.id), name: t.name, slug: t.slug, start: t.startAt, end: t.endAt || 0, city: t.city || "", online: !!t.isOnline, attendees: t.numAttendees || 0, timg, tbanner, events: evs });
   }
   const shobu = (D.upcoming?.tournaments || []).filter((t) => t.src === "shobu");      // (les tournois Shobu viennent du Hub : on les garde)
   await shobuUpRefresh(shobu);                                                          // (v131 : et le téléphone relit leurs inscrits, avec sa clé)
@@ -991,9 +991,17 @@ function viewWelcome() {
     <button class="btn accent" data-act="settings" style="width:100%">⚙ Réglages</button></div>`;
 }
 /* 🎯 v157 : la prépa de tes adversaires (poule : sûrs ; ensuite : probables), faite par le Hub, lisible sans réseau */
-function prepHome() {
-  const now = Date.now() / 1000, st = stats(allSets());
-  return Object.values(D.prep || {}).filter((p) => (p.start || 0) > now - 2 * 86400 && (p.opps || []).length).sort((a, b) => a.start - b.start).slice(0, 2).map((p) => {
+/* (v188) plus sur l'accueil : dans 🏆 Tournois → À venir et dans la fiche du tournoi ; cachée dès que le tournoi est terminé */
+function prepEnd(p) {
+  const u = (D.upcoming?.tournaments || []).find((t) => (t.events || []).some((e) => String(e.eid) === String(p.eid)));
+  const w = (D.watch?.tours || []).find((t) => (t.events || []).some((e) => String(e.eid) === String(p.eid)) || (p.name && t.name === p.name));
+  if (w?.status === "done") return 0;                                                   // (suivi dans 📺 : start.gg le dit terminé)
+  return u?.end || w?.end || (p.start || u?.start || 0) + 18 * 3600;                   // (sinon sa date de fin, ou 18 h après le début)
+}
+const prepLive = () => Object.values(D.prep || {}).filter((p) => (p.opps || []).length && Date.now() / 1000 < prepEnd(p)).sort((a, b) => a.start - b.start);
+function prepCards(eids) {
+  const st = stats(allSets());
+  return prepLive().filter((p) => !eids || eids.includes(String(p.eid))).map((p) => {
     const row = (o) => { const m = st.opps.find((x) => x.id === o.pid || key(x.name) === key(o.name));
       return `<div class="row" data-plan-home="${esc(o.pid || o.name)}" data-name="${esc(o.name)}"><span class="prep-pct">${o.pool ? "poule" : o.pct + " %"}</span><div class="grow"><b>${esc(o.name)}</b>${o.seed ? ` <span class="muted small">seed ${o.seed}</span>` : ""}
         <div class="small">${(o.chars || []).map((c) => ci(c, "xs")).join("")} ${m ? wl(m.w, m.l) : '<span class="muted">jamais joué</span>'}</div></div>›</div>`; };
@@ -1013,7 +1021,6 @@ function viewHome() {
         <div class="small">${r ? (r.out ? "Éliminé · " : "") + (nx ? (nx.res === "live" ? `● En cours contre <b>${esc(nx.name)}</b>` : `Prochain : <b>${esc(nx.name)}</b> · ${esc(nx.label)}`) : r.out ? "" : "En attente du prochain set") : "Lecture de ta run…"}</div></div>`; }).join("")}
     ${ups().filter((u) => dayOf(u) && (u.start || 0) * 1000 > Date.now() && u.events.some((ev) => ev.me)).map((u) => `<div class="card tmode" data-act="day" data-tid="${esc(u.tid)}"><div class="small tmode-h">🔥 JOUR J · ${esc(countdown(u.start))}</div><b>${esc(u.name)}</b>
       <div class="small">Ton 1er set, tes adversaires probables et leur scouting : touche pour ouvrir.</div></div>`).join("")}
-    ${prepHome()}
     ${ask ? '<button class="btn" data-act="notif" style="width:100%;margin-bottom:10px">🔔 Activer les alertes (prochain adversaire, set lancé)</button>' : ""}
     ${typeof wtpHome === "function" ? wtpHome() : ""}
     ${(() => { const n = fillTodo(sets, games).length; return n ? `<button class="card fill-nudge" data-act="fill" style="width:100%;text-align:left">🎭 <b>${n} set${n > 1 ? "s" : ""} sans persos</b> <span class="muted small">· touche pour les compléter (2 appuis par set) : tes stats par perso et par matchup en tiennent compte</span></button>` : ""; })()}
@@ -1042,7 +1049,7 @@ let tourSeg = "up";
 function viewTours() {
   const st = stats(allSets()), up = ups();
   return `<div class="seg"><button data-seg="up" class="${tourSeg === "up" ? "on" : ""}">À venir (${up.length})</button><button data-seg="past" class="${tourSeg === "past" ? "on" : ""}">Passés (${st.tours.length})</button><button data-seg="watch" class="${tourSeg === "watch" ? "on" : ""}">📺 Suivis (${(D.watch?.tours || []).length})</button><button data-seg="find" class="${tourSeg === "find" ? "on" : ""}">🔎 Chercher</button></div>
-    ${tourSeg === "watch" ? viewWatch() : tourSeg === "find" ? viewFind() : tourSeg === "up" ? (up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div>
+    ${tourSeg === "watch" ? viewWatch() : tourSeg === "find" ? viewFind() : tourSeg === "up" ? prepCards() + (up.map((u) => `<div class="card row" data-up="${esc(u.tid)}">${logo(u.timg, u.name)}<div class="grow"><div><b>${esc(u.name)}</b></div>
         <div class="muted small">${esc(fmtDay(u.start))} · ${countdown(u.start)}${u.city ? " · " + esc(u.city) : ""}</div></div>›</div>`).join("") || '<div class="empty">Aucun tournoi à venir où tu es inscrit.</div>')
     : `<div class="card">${st.tours.map((t) => `<div class="row" data-tour="${esc(t.key)}">${logo(t.timg, t.name)}<div class="grow"><div><b>${esc(t.name)}</b>${t.src === "shobu" ? ' <span class="chip shobu">Shobu</span>' : ""}</div>
         <div class="muted small">${fmtDate(t.ts)} · ${t.entrants || "?"} j. · ${wl(t.w, t.l)}</div></div><b>${ordinal(t.place)}</b></div>`).join("") || '<div class="empty">Pas encore de tournoi.</div>'}</div>`}`;
@@ -1313,6 +1320,7 @@ function sheetUp(tid) {
   upBrackets(u, tid);                                        // (🔮 v140 : le bracket de chaque épreuve, pour la run prévue complète)
   sheet(`${tourHead(u.name, u.tbanner, `${esc(fmtDay(u.start))} · <b>${started ? "commencé" : countdown(u.start)}</b>${u.city ? " · " + esc(u.city) : ""}${u.attendees ? ` · ${u.attendees} inscrits` : ""}`, u.url || (u.slug ? "https://www.start.gg/" + u.slug : ""))}
     ${dayOf(u) && u.events.some((ev) => ev.me) ? `<button class="btn accent" data-act="day" data-tid="${esc(u.tid)}" style="width:100%;margin-bottom:10px">🔥 Mode Jour J</button>` : ""}
+    ${prepCards(u.events.map((ev) => String(ev.eid)))}
     ${u.events.map((ev) => { const path = bracketPath(ev);
       let body;
       const shobu = String(ev.eid).startsWith("shobu:");
@@ -1565,7 +1573,7 @@ document.addEventListener("click", async (e) => {
   const seg = e.target.closest("[data-seg]"); if (seg) { tourSeg = seg.dataset.seg; return render(); }
   const sc = e.target.closest("[data-scout]"); if (sc && sc.dataset.scout) { if (CUR && sc.closest("#sheet")) BACK = CUR; CUR = null; return sheetScout(sc.dataset.scout, sc.dataset.name); }
   const pln = e.target.closest("#sheet [data-plan]"); if (pln) return sheetPlan(pln.dataset.plan, pln.dataset.pn);     // (🗺 v146)
-  const plh = e.target.closest("[data-plan-home]"); if (plh) { CUR = BACK = null; return sheetPlan(plh.dataset.planHome, plh.dataset.name); }     // (🎯 v157)
+  const plh = e.target.closest("[data-plan-home]"); if (plh) { BACK = $("#sheet-back").hidden ? null : CUR; CUR = null; return sheetPlan(plh.dataset.planHome, plh.dataset.name); }     // (🎯 v157 ; v188 : depuis la fiche du tournoi, ← y revient)
   const bkj = e.target.closest("#sheet [data-bkjgo]"); if (bkj && BK) return bkCenter(bkj.dataset.bkjgo);
   const bkp = e.target.closest("#sheet [data-bkp]"); if (bkp && BK) { BK.hl = BK.hl === bkp.dataset.bkp ? null : bkp.dataset.bkp; const sc = $(".bk-wrap")?.scrollLeft; drawBracket(); if ($(".bk-wrap")) $(".bk-wrap").scrollLeft = sc || 0; return; }
   const op0 = e.target.closest("#sheet [data-opp]"); if (op0) { if (CUR) BACK = CUR; CUR = null; return sheetOpp(op0.dataset.opp); }
